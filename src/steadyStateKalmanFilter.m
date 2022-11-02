@@ -61,7 +61,8 @@ W = Wtr';
 % Compute the a posteriori steady-state covariance.
 P = (eye(n)-W*H)*Pbar*(eye(n)-W*H)' + W*R*W';
 
-% Compute the covariance of the innovations.
+% Compute the covariance of the innovations. This is used to compute the
+% innovation statisctic epsilon_nu.
 S = H*Pbar*H' + R;
 
 % This loop performs one model propagation step and one measurement
