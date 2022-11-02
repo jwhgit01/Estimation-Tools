@@ -1,4 +1,4 @@
-function [fk,Fk,Gk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
+function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %
 %  Copyright (c) 2002 Mark L. Psiaki.    All rights reserved.  
 %                2022 Jeremy W. Hopwood. All rights reserved.
@@ -10,7 +10,7 @@ function [fk,Fk,Gk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %  equation.  If the nonlinear differential equation takes the
 %  form:
 %
-%               xdot = f(t,x,uk,vk)
+%           xdot = f(t,x,uk,vk)
 %
 %  and if the initial condition is x(tk) = xk, then the solution
 %  gets integrated forward from time tk to time tkp1 using nRK
@@ -18,7 +18,7 @@ function [fk,Fk,Gk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %  compute fk(k,xk,uk,vk) = x(tkp1).  This function can
 %  be used in a nonlinear dynamics model of the form:
 %
-%        xkp1 = fk(k,xk,uk,vk)
+%           xkp1 = fk(k,xk,uk,vk)
 %
 %  which is the form for use in an extended Kalman filter.
 %
@@ -67,108 +67,102 @@ function [fk,Fk,Gk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %                   0, then these outputs must be empty arrays.
 %
 %    dervflag       A flag that tells whether (dervflag = 1) or not
-%                   (dervflag = 0) the partial derivatives 
-%                   dfprinted_dxk and dfprinted_dvk must be calculated.
-%                   If dervflag = 0, then these outputs will be
-%                   empty arrays.
+%                   (dervflag = 0) the partial derivatives df/dxk and
+%                   df/dvk must be calculated. If dervflag = 0, then these
+%                   outputs will be empty arrays.
 %  
 %  Outputs:
 %
 %    fk             The discrete-time dynamics vector function evaluated 
 %                   at k, xk, uk, and vk.
 %
-%    Fk             The partial derivative of fprinted with respect to
-%                   xk.  This is a Jacobian matrix.  It is evaluated and
-%                   output only if dervflag = 1.  Otherwise, an
-%                   empty array is output.
+%    Fk             The partial derivative of fprinted with respect to xk.
+%                   This is a Jacobian matrix. It is evaluated and output
+%                   only if dervflag = 1. Otherwise, an empty array is
+%                   output.
 %
-%    Gk             The partial derivative of fprinted with respect to
-%                   vk.  This is a Jacobian matrix.  It is evaluated and
-%                   output only if dervflag = 1.  Otherwise, an
-%                   empty array is output.
+%    Gk             The partial derivative of fprinted with respect to vk.
+%                   This is a Jacobian matrix. It is evaluated and output
+%                   only if dervflag = 1. Otherwise, an empty array is
+%                   output.
 %
 
 % Prepare for the Runge-Kutta numerical integration by setting up 
-%  the initial conditions and the time step.
-%
+% the initial conditions and the time step.
 x = xk;
 if dervflag == 1
     nx = size(xk,1);
     nv = size(vk,1);
-    F = ????;
-    G = ????;
+    F = eye(nx);
+    Gam = zeros(nx,nv);
 end
 t = tk;
 delt = (tkp1 - tk)/nRK;
 
 % This loop does one 4th-order Runge-Kutta numerical integration step
-%  per iteration.  Integrate the state.  If partial derivatives are
-%  to be calculated, then the partial derivative matrices simultaneously
-%  with the state.
+% per iteration.  Integrate the state.  If partial derivatives are
+% to be calculated, then the partial derivative matrices simultaneously
+% with the state.
 for jj = 1:nRK
+
+    % Step a
     if dervflag == 1
-        [fscript,dfscript_dx,dfscript_dvtil] = ...
-               feval(fc,t,x,uk,vk,1);
-        dFa = (????)*delt;
-        dGammaa = (????)*delt; 
+        [f,A,D] = feval(fc,t,x,uk,vk,1);
+        dFa = (A*F)*delt;
+        dGama = (A*Gam+D)*delt; 
     else
-        fscript = feval(fc,t,x,uk,vk,0);
+        f = feval(fc,t,x,uk,vk,0);
     end
-    dxa = fscript*delt;
-%
+    dxa = f*delt;
+
+    % Step b
     if dervflag == 1
-        [fscript,dfscript_dx,dfscript_dvtil] = ...
-               feval(fc,(t + 0.5*delt),(x + 0.5*dxa),...
-                     uk,vk,1);
-        dFb = (????)*delt;
-        dGammab = (????)*delt; 
+        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,1);
+        dFb = (A*F)*delt;
+        dGamb = (A*Gam+D)*delt; 
     else
-        fscript = feval(fc,(t + 0.5*delt),(x + 0.5*dxa),...
-                     uk,vk,0);
+        f = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,0);
     end
-    dxb = fscript*delt;
-%
-  if dervflag == 1
-     [fscript,dfscript_dx,dfscript_dvtil] = ...
-               feval(fc,(t + 0.5*delt),(x + 0.5*dxb),...
-                     uk,vk,1);
-     dFc = (????)*delt;
-     dGammac = (????)*delt; 
-  else
-     fscript = feval(fc,(t + 0.5*delt),(x + 0.5*dxb),...
-                     uk,vk,0);
-  end
-  dxc = fscript*delt;
-%
-  if dervflag == 1
-     [fscript,dfscript_dx,dfscript_dvtil] = ...
-               feval(fc,(t + delt),(x + dxc),...
-                     uk,vk,1);
-     dFd = (????)*delt;
-     dGammad = (????)*delt;
-  else
-     fscript = feval(fc,(t + delt),(x + dxc),...
-                     uk,vk,0);
-  end
-  dxd = fscript*delt;
-%
-  x = x + (dxa + 2*(dxb + dxc) + dxd)*(1/6);
-  if dervflag == 1
-     F = F + (dFa + 2*(dFb + dFc) + dFd)*(1/6);
-     Gamma = Gamma + ...
-            (dGammaa + 2*(dGammab + dGammac) + dGammad)*(1/6);
-  end
-  t = t + delt;
+    dxb = f*delt;
+
+    % Step c
+    if dervflag == 1
+        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,1);
+        dFc = (A*F)*delt;
+        dGamc = (A*Gam+D)*delt; 
+    else
+        f = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,0);
+    end
+    dxc = f*delt;
+
+    % Step d
+    if dervflag == 1
+        [f,A,D] = feval(fc,t+delt,x+dxc,uk,vk,1);
+        dFd = (A*F)*delt;
+        dGamd = (A*Gam+D)*delt;
+    else
+        f = feval(fc,t+delt,x+dxc,uk,vk,0);
+    end
+    dxd = f*delt;
+
+    % 4th order Runge-Kutta integration result
+    x = x + (dxa + 2*(dxb + dxc) + dxd)/6;
+    if dervflag == 1
+        F = F + (dFa + 2*(dFb + dFc) + dFd)*(1/6);
+        Gam = Gam + (dGama + 2*(dGamb + dGamc) + dGamd)/6;
+    end
+    t = t + delt;
+
 end
 
 % Assign the results to the appropriate outputs.
 fk = x;
 if dervflag == 1
     Fk = F;
-    Gk = Gamma;
+    Gamk = Gam;
 else
     Fk = [];
-    Gk = [];
+    Gamk = [];
 end
 
 end
