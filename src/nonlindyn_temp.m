@@ -41,6 +41,16 @@ m = 1;
 k = 1;
 b = 0.1;
 
+% If vtil is empty, set it to zero.
+if isempty(vtil)
+    vtil = 0;
+end
+
+% If u is empty, set it to zero.
+if isempty(u)
+    u = 0;
+end
+
 % Evaluate the differential equations.
 f = zeros(n,1);
 f(1,1) = x(2);

@@ -1,4 +1,4 @@
-function [xhat,P,nu] = extendedKalmanFilterDT(z,u,f,h,Q,R,xhat0,P0)
+function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(z,u,f,h,Q,R,xhat0,P0)
 %kalmanFilter 
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.

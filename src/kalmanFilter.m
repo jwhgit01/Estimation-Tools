@@ -71,8 +71,7 @@ sigdig = maxsigdig;
 
 % Check to see whether we have a time-varying or time-invariant system. A
 % time-varying system may be prescribed by an array of matrices or a
-% function handle that is a fucntion of the time step k. Note that
-% G,Gam,H,Q,R must all be the same dimesnions and type. If an input is a
+% function handle that is a fucntion of the time step k. If an input is a
 % constant matrix or a 3-dim array, make it an anonymous function.
 if ~isa(F,'function_handle')
     if size(F,3) > 1, Fk = @(k) F(:,:,k); else, Fk = @(k) F; end

@@ -1,6 +1,5 @@
 function [hj,Hj,d2hjdx2] = measmodel_temp(tj,x,i1stdrv,i2nddrv)
 %
-%  Copyright (c) 2002 Mark L. Psiaki.     All rights reserved.
 %  Copyright (c) 2022 Jeremy W. Hopwood.  All rights reserved.
 % 
 %  This function gives the measurement function h(tj,x) and its first and
@@ -30,25 +29,25 @@ function [hj,Hj,d2hjdx2] = measmodel_temp(tj,x,i1stdrv,i2nddrv)
 %  
 %  Outputs:
 %
-%   hj      The px1 output vector.
+%   hj          The nz x 1 output vector.
 %
-%   Hj      = dhj/dx. Hj is a pxn matrix. This output will be needed to do
-%           Newton's method or to do the Gauss-Newton method.
+%   Hj          = dhj/dx. Hj is a pxn matrix. This output will be needed to
+%               do Newton's method or to do the Gauss-Newton method.
 %
-%   d2hjdx2 = d2hj/dx2. d2hjdx2 is a pxnxn array. This output will be
-%           needed to do Newton's method.
+%   d2hjdx2     = d2hj/dx2. d2hjdx2 is a pxnxn array. This output will be
+%               needed to do Newton's method.
 %
 
 % Define the dimension of hj and get the dimensions of x.
-p = 1;
-n = size(x,1);
+nz = 1;
+nx = size(x,1);
 
 % Set up output arrays as needed.
-hj = zeros(p,1);
+hj = zeros(nz,1);
 if ~all(i1stdrv == 0)
-    Hj = zeros(p,n);
+    Hj = zeros(nz,nx);
     if ~all(i2nddrv == 0)
-        d2hjdx2 = zeros(p,n,n);
+        d2hjdx2 = zeros(nz,nx,nx);
     else
         d2hjdx2 = [];
     end
@@ -67,7 +66,7 @@ if i1stdrv == 0
 end
 
 % Calculate the first derivatives.
-epsilon = 1e8;
+epsilon = sqrt(eps);
 epsilon_inv = 1/epsilon;
 %
 % Analytic formula.
@@ -79,7 +78,7 @@ if all(i1stdrv==1) || strcmp(i1stdrv,'Analytic')
 % Single Step Finite Difference.
 %
 elseif strcmp(i1stdrv,'FiniteDifference')
-    for ii = 1:n
+    for ii = 1:nx
         xplus = x;
         xplus(ii) =  x(ii) + epsilon;
         Hj(:,ii) = (measmodel_temp(tj,xplus,0,0)-hj)*epsilon_inv;
@@ -88,7 +87,7 @@ elseif strcmp(i1stdrv,'FiniteDifference')
 % Complex-Step Derivative Approximation (CSDA)
 %
 elseif strcmp(i1stdrv,'CSDA')
-    for ii = 1:n
+    for ii = 1:nx
         xplus = x;
         xplus(ii) =  x(ii) + 1i*epsilon;
         Hj(:,ii) = imag(measmodel_temp(tj,xplus,0,0)).*epsilon_inv;
@@ -97,7 +96,7 @@ elseif strcmp(i1stdrv,'CSDA')
 % Central Finite Difference Method (CFDM)
 %
 elseif strcmp(i1stdrv,'CFDM')
-    for ii = 1:n
+    for ii = 1:nx
         xplus = x;
         xminus = x;
         xplus(ii) =  x(ii) + epsilon;
@@ -129,12 +128,12 @@ end
 %       Also check the accuracy of this approach.
 %       Is there a better approach?
 %
-for jj = 1:n
+for jj = 1:nx
     %
     % Single Step Finite Difference.
     %
     if strcmp(i2nddrv,'FiniteDifference')
-        for ii = 1:n
+        for ii = 1:nx
             xplus = x;
             xplus(ii) =  x(ii) + epsilon;
             [~,Hjplus] = measmodel_temp(tj,xplus,i1stdrv,0);
@@ -146,7 +145,7 @@ for jj = 1:n
     % Complex-Step Derivative Approximation (CSDA)
     %
     elseif strcmp(i2nddrv,'CSDA')
-        for ii = 1:n
+        for ii = 1:nx
             xplus = x;
             xplus(ii) =  x(ii) + 1i*epsilon;
             [~,Hjplus] = measmodel_temp(tj,xplus,i1stdrv,0);
@@ -157,7 +156,7 @@ for jj = 1:n
     % Central Finite Difference Method (CFDM)
     %
     elseif strcmp(i2nddrv,'CFDM')
-        for ii = 1:n
+        for ii = 1:nx
             xplus = x;
             xminus = x;
             xplus(ii) =  x(ii) + epsilon;

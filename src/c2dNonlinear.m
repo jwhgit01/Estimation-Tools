@@ -1,4 +1,4 @@
-function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
+function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag,params)
 %
 %  Copyright (c) 2002 Mark L. Psiaki.    All rights reserved.  
 %                2022 Jeremy W. Hopwood. All rights reserved.
@@ -58,7 +58,7 @@ function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %                   fc must equal 'rocketmodel' or @rocketmodel, and the
 %                   first line of the file rocketmodel.m must be:
 %
-%                   function [f,A,Gam] = rocketmodel(t,x,u,vtil,dervflag)
+%                   function [f,A,Gam] = rocketmodel(t,x,u,vtil,dervflag,params)
 %
 %                   The function must be written so that fscript defines
 %                   xdot as a function of t, x, u, and vtil and so that A
@@ -70,6 +70,8 @@ function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag)
 %                   (dervflag = 0) the partial derivatives df/dxk and
 %                   df/dvk must be calculated. If dervflag = 0, then these
 %                   outputs will be empty arrays.
+%
+%   params          Parameters passed to the system dynamic model function.
 %  
 %  Outputs:
 %
@@ -107,41 +109,41 @@ for jj = 1:nRK
 
     % Step a
     if dervflag == 1
-        [f,A,D] = feval(fc,t,x,uk,vk,1);
+        [f,A,D] = feval(fc,t,x,uk,vk,1,params);
         dFa = (A*F)*delt;
         dGama = (A*Gam+D)*delt; 
     else
-        f = feval(fc,t,x,uk,vk,0);
+        f = feval(fc,t,x,uk,vk,0,params);
     end
     dxa = f*delt;
 
     % Step b
     if dervflag == 1
-        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,1);
+        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,1,params);
         dFb = (A*F)*delt;
         dGamb = (A*Gam+D)*delt; 
     else
-        f = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,0);
+        f = feval(fc,t+0.5*delt,x+0.5*dxa,uk,vk,0,params);
     end
     dxb = f*delt;
 
     % Step c
     if dervflag == 1
-        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,1);
+        [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,1,params);
         dFc = (A*F)*delt;
         dGamc = (A*Gam+D)*delt; 
     else
-        f = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,0);
+        f = feval(fc,t+0.5*delt,x+0.5*dxb,uk,vk,0,params);
     end
     dxc = f*delt;
 
     % Step d
     if dervflag == 1
-        [f,A,D] = feval(fc,t+delt,x+dxc,uk,vk,1);
+        [f,A,D] = feval(fc,t+delt,x+dxc,uk,vk,1,params);
         dFd = (A*F)*delt;
         dGamd = (A*Gam+D)*delt;
     else
-        f = feval(fc,t+delt,x+dxc,uk,vk,0);
+        f = feval(fc,t+delt,x+dxc,uk,vk,0,params);
     end
     dxd = f*delt;
 
