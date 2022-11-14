@@ -14,14 +14,15 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilter(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %
 % Inputs:
 %
-%   z       The Nxp time history of measurements.
+%   z       The N x nz time history of measurements.
 %
-%   u       The Nxm time history of system inputs (optional). If not
+%   u       The N x nu time history of system inputs (optional). If not
 %           applicable set to an empty array, [].
 % 
 %   F,G,Gam The system matrices in Eq.(1). These may be specified as
 %           contant matrices, (.)x(.)xN arrays of matrices, or function
-%           handles that returns a matrix given the time step k.
+%           handles that returns a matrix given the time step k. Note that
+%           if there is no input, G may be given as an empty array, [].
 % 
 %   H       The measurement model matrix in Eq.(2). This may be specified
 %           as a contant matrix, an (.)x(.)xN array, or a function handle
@@ -31,9 +32,9 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilter(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %           specified as contant matrices, (.)x(.)xN arrays of matrices, or
 %           function handles that returns a matrix given the time step k.
 %
-%   xhat0   The nx1 initial state estimate.
+%   xhat0   The nx x 1 initial state estimate.
 %
-%   P0      The nxn symmetric positive definite initial state
+%   P0      The nx x nx symmetric positive definite initial state
 %           estimation error covariance matrix.
 %  
 % Outputs:
