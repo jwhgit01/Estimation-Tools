@@ -83,6 +83,8 @@ end
 % update step per iteration.
 for k = 1:N-1
 
+    disp(num2str(k));
+
     % Perform the dynamic propagation of the state estimate and the
     % covariance.
     xhatk = xhat(k,:).';
@@ -92,7 +94,8 @@ for k = 1:N-1
 
     % Perform the measurement update of the state estimate and the
     % covariance.
-    [hkp1,Hkp1,~] = feval(h,t(k+1),xbarkp1,1,0);
+    ukp1 = u(k+1,:).';
+    [hkp1,Hkp1] = feval(h,t(k+1),xbarkp1,ukp1,1,params);
     nu(k+1,:) = (z(k+1,:).' - hkp1).';
     Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(k+1);
     Wkp1 = Pbarkp1*Hkp1'/Skp1;

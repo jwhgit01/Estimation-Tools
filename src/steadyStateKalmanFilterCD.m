@@ -1,10 +1,11 @@
-function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilter(z,u,F,G,Gam,H,Q,R,xhat0)
-%kalmanFilter 
+function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterCD(z,u,A,B,D,C,Qc,Rk,xhat0)
+%steadyStateKalmanFilterCD 
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
 %
-% This function performs linear Kalman filtering for a given time history
-% of measurments and the stationary discrete-time linear system,
+% This function performs steady state linear Kalman filtering for a given
+% time history of measurments and the stationary discrete-time linear
+% system,
 %
 %   x(k+1) = F*x(k) + G*u(k) + Gam*v(k)                             (1)
 %     z(k) = H*x(k) + w(k)                                          (2)
@@ -14,9 +15,9 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilter(z,u,F,G,Gam,H,Q,R,xh
 %
 % Inputs:
 %
-%   z       The Nxp time history of measurements.
+%   z       The N x nz time history of measurements.
 %
-%   u       The Nxm time history of system inputs (optional). If not
+%   u       The N x nu time history of system inputs (optional). If not
 %           applicable set to an empty array, [].
 % 
 %   F,G,Gam The system matrices in Eq.(1).
@@ -25,32 +26,35 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilter(z,u,F,G,Gam,H,Q,R,xh
 %   
 %   Q,R     The process and measurement noise covariance.
 %
-%   xhat0   The nx1 initial state estimate.
+%   xhat0   The nx x 1 initial state estimate.
 %
 %  
 % Outputs:
 %
-%   xhat    The Nxn array that contains the time history of the
+%   xhat    The N x nx array that contains the time history of the
 %           state vector estimates.
 %
-%   P       The nxn steady-state estimation error covariance matrix.
+%   P       The nx x nx steady-state estimation error covariance matrix.
 %
-%   W       The pxn steady-state Kalman gain matrix.
+%   Pbar    The nx x nx steady state a priori state estimation error 
+%           covariance matrix.
 %
-%   nu      The Nx1 vector of innovations. The first value is zero
+%   W       The nz x nx steady-state Kalman gain matrix.
+%
+%   nu      The N x nz vector of innovations. The first value is zero
 %           because there is no measurement update at the first sample.
 %
-%   epsnu   The Nx1 vector of the normalized innovation statistic. The
+%   epsnu   The N x 1 vector of the normalized innovation statistic. The
 %           first value is zero because there is no measurement update at
 %           the first sample time.
 %
 
 % Get the problem dimensions and initialize the output arrays.
 N = size(z,1);
-n = size(xhat0,1);
-p = size(z,2);
-xhat = zeros(N,n);
-nu = zeros(N,p);
+nx = size(xhat0,1);
+nz = size(z,2);
+xhat = zeros(N,nx);
+nu = zeros(N,nz);
 epsnu = zeros(N,1);
 xhat(1,:) = xhat0.';
 
@@ -58,8 +62,11 @@ xhat(1,:) = xhat0.';
 [Pbar,Wtr,~] = idare(F',H',Gam*Q*Gam',R,[],[]);
 W = Wtr';
 
-% Compute the a posteriori steady-state covariance.
-P = (eye(n)-W*H)*Pbar*(eye(n)-W*H)' + W*R*W';
+% Compute the a posteriori steady-state covariance. Use the formula used in
+% the legacy Matlab command dlqe.m
+M = Pbar*H'/(R+H*Pbar*H');
+P = (eye(nx)-M*H)*Pbar;
+P = (P+P')/2;
 
 % Compute the covariance of the innovations. This is used to compute the
 % innovation statisctic epsilon_nu.

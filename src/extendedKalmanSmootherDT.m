@@ -1,10 +1,10 @@
-function [xhat,P] = iteratedEKF(t,z,u,fc,hk,Q,R,xhat0,P0,nRK,params)
-%iteratedEKF 
+function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P0,nRK,params)
+%extendedKalmanFilterDT
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
 %
-% This function performs ierated extended Kalman filtering for a given time
-% history of measurments and the discrete-time nonlinear system,
+% This function performs extended Kalman filtering for a given time history
+% of measurments and the discrete-time nonlinear system,
 %
 %                   x(k+1) = f(k,x(k),u(k),v(k))                    (1)
 %                     z(k) = h(k,x(k)) + w(k)                       (2)
@@ -34,10 +34,12 @@ function [xhat,P] = iteratedEKF(t,z,u,fc,hk,Q,R,xhat0,P0,nRK,params)
 %   
 %   Q,R     The process and measurement noise covariance.
 %
-%   xhat0   The nx x 1 initial state estimate.
+%   xhat0   The nx1 initial state estimate.
 %
-%   P0      The nx x nx symmetric positive definite initial state
+%   P0      The nxn symmetric positive definite initial state
 %           estimation error covariance matrix.
+%
+%
 %  
 % Outputs:
 %
@@ -46,6 +48,9 @@ function [xhat,P] = iteratedEKF(t,z,u,fc,hk,Q,R,xhat0,P0,nRK,params)
 %
 %   P       The nxnx(N+1) array that contains the time history of the
 %           estimation error covariance matrices.
+%
+%   nu      The (N+1)x1 vector of innovations. The first value is zero
+%           because there is no measurement update at the first sample.
 % 
 
 % Check to see whether we have non-stationary noise, which may
@@ -62,13 +67,6 @@ else
     Qk = Q;
 end
 
-% Check to see whether f is a difference or differential equation.
-if isempty(t)
-    DT = true;
-else
-    DT = false;
-end
-
 % number of runge-kutta integration steps
 if isempty(nRK)
     nRK = 10;
@@ -78,11 +76,15 @@ end
 N = size(z,1);
 nx = size(xhat0,1);
 nv = size(Qk(1),1);
-% nz = size(z,2);
+nz = size(z,2);
 xhat = zeros(N,nx);
 P = zeros(nx,nx,N);
+nu = zeros(N,nz);
+epsnu = zeros(N,1);
 xhat(1,:) = xhat0.';
 P(:,:,1) = P0;
+maxsigdig = -fix(log10(eps));
+sigdig = maxsigdig;
 
 % if no inputs, set to zero
 if isempty(u)
@@ -95,46 +97,41 @@ for k = 1:N-1
 
     disp(k);
     
-    % "Measurement model" used in the Gauss-Newton iterations.
-    ukp1 = u(k+1,:).';
-    if DT
-        tkp1 = [];
-    else
-        tk = t(k,1);
-        tkp1 = t(k+1,1);
-    end
-    
-    modelGN = @(tk,xak,uk,ideriv,params) ...
-        modelBSEKF(tk,tkp1,xak(1:nx,1),xak(nx+1:nx+nv,1),...
-        uk,ukp1,ideriv,params,fc,hk,nRK);
-
-    % Perform Gauss-Newton iterations
-    zak = [xhat(k,:), zeros(1,nv), z(k+1,:)];
+    % Perform the dynamic propagation of the state estimate and the
+    % covariance.
+    xhatk = xhat(k,:).';
+    uk = u(k,:).';
     Pk = P(:,:,k);
-    Rak = blkdiag(Pk,Qk(k),Rk(k+1));
-    xaguess = [xhat(k,:).';zeros(nv,1)];
-    ukhist = u(k,:);
-    if DT
-        [xask,~,~,termflag] = gaussNewtonEstimation(k,zak,ukhist,Rak,modelGN,xaguess,1,0,params);
+    if isempty(t)
+        [xbarkp1,Fk,Gamk] = feval(f,k,xhatk,uk,[],1,params);
     else
-        [xask,~,~,termflag] = gaussNewtonEstimation(tk,zak,ukhist,Rak,modelGN,xaguess,1,0,params);
+        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),t(k,1),t(k+1,1),nRK,f,1,params);
     end
-    xsk = xask(1:nx,1);
-    vsk = xask(nx+1:nx+nv);
-
-    % Compute futute estimate using smoothed past estimates.
-    uk = ukhist.';
-    if DT
-        [xhatkp1,Fk,Gamk] = feval(fc,k,xsk,uk,vsk,1,params);
-    else
-        [xhatkp1,Fk,Gamk] = c2dNonlinear(xsk,uk,vsk,tk,tkp1,nRK,fc,1,params);
-    end
-    xhat(k+1,:) = xhatkp1.';
-
-    % Compute the covariance of the estimate
-    [~,Hskp1] = feval(hk,tkp1,xhatkp1,ukp1,1,params);
     Pbarkp1 = Fk*Pk*Fk' + Gamk*Qk(k)*Gamk';
-    P(:,:,k+1) = inv(inv(Pbarkp1) + (Hskp1'/Rk(k+1))*Hskp1);
+
+    % Perform the measurement update of the state estimate and the
+    % covariance.
+    ukp1 = u(k+1,:).';
+    if isempty(t)
+        [zbarkp1,Hkp1] = feval(h,k+1,xbarkp1,ukp1,1,params);
+    else
+        [zbarkp1,Hkp1] = feval(h,t(k+1,1),xbarkp1,ukp1,1,params);
+    end
+    nu(k+1,:) = (z(k+1,:).'-zbarkp1).';
+    Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(k+1);
+    Wkp1 = Pbarkp1*Hkp1'/Skp1;
+    xhat(k+1,:) = (xbarkp1 + Wkp1*nu(k+1,:).').';
+    P(:,:,k+1) = Pbarkp1-Wkp1*Skp1*Wkp1';
+
+    % Check the condition number of Skp1 and infer the approximate accuracy
+    % of the resulting estimate.
+    sigdigkp1 = maxsigdig-fix(log10(cond(Skp1)));
+    if sigdigkp1 < sigdig
+        sigdig = sigdigkp1;
+    end
+
+    % Compute the innovation statistic, epsilon_nu(k).
+    epsnu(k+1) = nu(k+1,:)*(Skp1\nu(k+1,:).');
 
 end
 

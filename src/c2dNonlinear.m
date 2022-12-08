@@ -10,7 +10,7 @@ function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag,params)
 %  equation.  If the nonlinear differential equation takes the
 %  form:
 %
-%           xdot = f(t,x,uk,vk)
+%                       dx/dt = f(t,x,uk,vk)
 %
 %  and if the initial condition is x(tk) = xk, then the solution
 %  gets integrated forward from time tk to time tkp1 using nRK
@@ -18,9 +18,9 @@ function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag,params)
 %  compute fk(k,xk,uk,vk) = x(tkp1).  This function can
 %  be used in a nonlinear dynamics model of the form:
 %
-%           xkp1 = fk(k,xk,uk,vk)
+%                   x(k+1) = fk(k,x(k),u(k),v(k))
 %
-%  which is the form for use in an extended Kalman filter.
+%  which is the form for use in an extended Kalman filter, for instance.
 %
 %  This function also computes the first partial derivative of 
 %  fk(k,xk,uk,vk) with respect to xk, Fk = dfk/dxk, and with

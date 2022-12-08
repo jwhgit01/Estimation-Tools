@@ -1,5 +1,5 @@
-function [xhat,P] = unscentedRTSSmootherCD(t,z,u,f,h,Q,R,xhat0,P0,nRK,alpha,beta,kappa,params)
-%unscentedRTSSmootherCD 
+function [xs,Ps,xhat,Phat] = unscentedKalmanSmootherCD(t,z,u,f,h,Q,R,xhat0,P0,nRK,alpha,beta,kappa,params)
+%unscentedKalmanSmootherCD 
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
 %
@@ -68,11 +68,11 @@ if isempty(u)
 end
 
 % First, perform unscented Kalman filtering forward in time.
-[xhatfilt,Pfilt,~,~,~] = unscentedKalmanFilterCD(t,z,u,f,h,Qc,Rk,xhat0,P0,nRK,alpha,beta,kappa,params);
+[xhat,Phat,~,~,~] = unscentedKalmanFilterCD(t,z,u,f,h,Qc,Rk,xhat0,P0,nRK,alpha,beta,kappa,params);
 
 % Initialize the outputs
-xhat = xhatfilt;
-P = Pfilt;
+xs = xhat;
+Ps = Phat;
 
 % Compute the weights associated with the sigma points.
 lambda = alpha^2*(nx+kappa) - nx;
@@ -86,18 +86,20 @@ Wm(2:(2*nx+1),1) = repmat(1/(2*c),2*nx,1);
 Wc(2:(2*nx+1),1) = repmat(1/(2*c),2*nx,1);
 
 % Get the covariance and mean at the last sample.
-Ps = Pfilt(:,:,N);
-xs = xhatfilt(N,:).';
+Pskm1 = Phat(:,:,N);
+xskm1 = xhat(N,:).';
 
 % This loop propagates backwards in time and performs RTS smoothing.
 for k = N:-1:2
 
     % Smooth the sigma points backwards in time.
-    [xs,Ps] = smoothUKBF(xs,Ps,xhatfilt(k,:).',Pfilt(:,:,k),u(k,:).',Qc,t(k),t(k-1),nRK,f,h,sqrtc,Wm,Wc,params);
+    [xskm1,Pskm1] = smoothUKBF(xskm1,Pskm1,xhat(k,:).',Phat(:,:,k),u(k,:).',Qc,t(k),t(k-1),nRK,f,h,sqrtc,Wm,Wc,params);
 
     % Store the mean and covariance
-    xhat(k-1,:) = xs;
-    P(:,:,k-1) = Ps;
+    xs(k-1,:) = xskm1;
+    Ps(:,:,k-1) = Pskm1;
+
+    disp(num2str(k))
 
 end
 

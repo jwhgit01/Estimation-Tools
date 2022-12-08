@@ -1,4 +1,4 @@
-function [J,dx,dJdalpha,d2Jdalpha2,P,dJdx] = gaussNewtonCost(xguess,thist,zhist,R,h,idxflag,params)
+function [J,dx,dJdalpha,d2Jdalpha2,P,dJdx] = gaussNewtonCost(xguess,thist,zhist,uhist,R,h,idxflag,params)
 %
 % Copyright (c) 2002 Mark L. Psiaki.     All rights reserved. 
 %               2022 Jeremy W. Hopwood.  All rights reserved.
@@ -85,7 +85,11 @@ end
 
 % Pre-compute the inverse of the cholesky decompisition of R if necessary
 if ~isa(R,'function_handle') && size(R,3) == 1
-    invcholR = inv(chol(R));
+    [cholR,flag] = chol(R);
+    if flag>0
+        pause
+    end
+    invcholR = inv(cholR);
 end
 
 % Loop through the measurements and set up the error vector and the
@@ -98,7 +102,8 @@ if ~all(idxflag == 0)
 end
 sidx = 1:nz;
 for k = 1:N
-    [hj,Hj,~] = feval(h,thist(k,1),xguess,idxflag,0,params);
+    uj = uhist(k,:).';
+    [hj,Hj] = feval(h,thist(k,1),xguess,uj,idxflag,params);
     zj = zhist(k,:).';
     if ~isa(R,'function_handle')
         if size(R,3) > 1

@@ -31,7 +31,7 @@ function [Xk,fX,hX] = sigmaPointsCT(tk,xk,uk,sqrtc,Sx,f,h,params)
 
 % Evaluate the dynamics and output at the given estimate, x.
 fX0 = feval(f,tk,xk,uk,[],0,params);
-hX0 = feval(h,tk,xk,0,0);
+hX0 = feval(h,tk,xk,uk,0,params);
 
 % dimensions
 nx = size(fX0,1);
@@ -47,12 +47,12 @@ hX(:,1) = hX0;
 for ii = 2:(nx+1)
     Xk(:,ii) = xk + sqrtc*Sx(:,ii-1);
     fX(:,ii) = feval(f,tk,Xk(:,ii),uk,[],0,params);
-    hX(:,ii) = feval(h,tk,Xk(:,ii),0,0);
+    hX(:,ii) = feval(h,tk,Xk(:,ii),uk,0,params);
 end
 for ii = (nx+2):(2*nx+1)
     Xk(:,ii) = xk - sqrtc*Sx(:,ii-1-nx);
     fX(:,ii) = feval(f,tk,Xk(:,ii),uk,[],0,params);
-    hX(:,ii) = feval(h,tk,Xk(:,ii),0,0);
+    hX(:,ii) = feval(h,tk,Xk(:,ii),uk,0,params);
 end
 
 end

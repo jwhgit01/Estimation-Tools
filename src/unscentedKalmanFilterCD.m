@@ -100,8 +100,7 @@ Wc(2:(2*nx+1),1) = repmat(1/(2*c),2*nx,1);
 % update step per iteration.
 for k = 1:N-1
     
-    % Propogate the sigma points through the dynamics using the square root
-    % approach.
+    % Propogate the sigma points through the dynamics.
     [xbarkp1,Pbarkp1,Xbarkp1,Ybarkp1] = predictUKBF(xhat(k,:).',P(:,:,k),u(k,:).',Qc,t(k),t(k+1),nRK,f,h,sqrtc,Wm,Wc,params);
 
     % Perform the measurement update of the state estimate and the
@@ -118,6 +117,8 @@ for k = 1:N-1
     nu(k+1,:) = z(k+1,:) - ybarkp1.';
     xhat(k+1,:) = Xbarkp1(:,1) + Kkp1*nu(k+1,:).';
     P(:,:,k+1) = Pbarkp1 - Kkp1*Skp1*Kkp1';
+
+    disp(num2str(k))
     
 end
 

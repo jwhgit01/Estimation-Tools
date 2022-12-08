@@ -1,11 +1,15 @@
-function [xhat,Jopt,P,termflag] = gaussNewtonEstimation(thist,zhist,R,h,xguess,derivmethod,dispflag,params)
+function [xhat,Jopt,P,termflag] = gaussNewtonEstimation(thist,zhist,uhist,R,h,xguess,derivmethod,dispflag,params)
 %gaussNewtonEstimation
 %
 % Copyright (c) 2002 Mark L. Psiaki.     All rights reserved.
 %               2022 Jeremy W. Hopwood.  All rights reserved.  
 %
 % This function does nonlinear batch least-squares estimation using
-% the Gauss-Newton method.
+% the Gauss-Newton method. It aims to minimize the cost function
+%
+%              N  /              T     -1                \
+%      J[x] = SUM | [z(i)-h(i,x)]   R(i)   [z(i)-h(i,x)] |
+%             i=1 \                                      /
 %
 % Inputs:
 % 
@@ -76,7 +80,7 @@ function [xhat,Jopt,P,termflag] = gaussNewtonEstimation(thist,zhist,R,h,xguess,d
 %
 
 % Calculate the initial cost and Gauss-Newton search direction.
-[J,delxgn,dJdalpha,d2Jdalpha2,P,~] = gaussNewtonCost(xguess,thist,zhist,R,h,derivmethod,params);
+[J,delxgn,dJdalpha,d2Jdalpha2,P,~] = gaussNewtonCost(xguess,thist,zhist,uhist,R,h,derivmethod,params);
 
 % Predict the change in cost if a step size of alpha = 1 is taken.
 delJpred = dJdalpha + 0.5*d2Jdalpha2;
@@ -102,7 +106,7 @@ while ~testdone
     % Initial step size and Gauss-Newton iteration
     alpha = 1;
     xguessnew = xguess + alpha*delxgn;
-    Jnew = gaussNewtonCost(xguessnew,thist,zhist,R,h,0,params);
+    Jnew = gaussNewtonCost(xguessnew,thist,zhist,uhist,R,h,0,params);
 
     % Do step size halving if necessary in order to force a decrease
     % in the cost.
@@ -115,7 +119,7 @@ while ~testdone
         end
         alpha = 0.5*alpha;
         xguessnew = xguess + alpha*delxgn;
-        Jnew = gaussNewtonCost(xguessnew,thist,zhist,R,h,0,params);
+        Jnew = gaussNewtonCost(xguessnew,thist,zhist,uhist,R,h,0,params);
     end
     
     % If we have halved the step size more than 50 times, make note.
@@ -131,7 +135,7 @@ while ~testdone
     delJpredold = delJpred;
 
     % Perform a Gauss-Newton iteration.
-    [J,delxgn,dJdalpha,d2Jdalpha2,P,~] = gaussNewtonCost(xguess,thist,zhist,R,h,derivmethod,params);
+    [J,delxgn,dJdalpha,d2Jdalpha2,P,~] = gaussNewtonCost(xguess,thist,zhist,uhist,R,h,derivmethod,params);
 
     % Compute quantities in order to check whether we should terminate.
     delJpred = dJdalpha + .5*d2Jdalpha2;

@@ -1,4 +1,4 @@
-function [f,A,D] = nonlindyn_temp(t,x,u,vtil,dervflag)
+function [f,A,D] = nonlindyn_temp(t,x,u,vtil,dervflag,params)
 %nonlindyn_temp
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.

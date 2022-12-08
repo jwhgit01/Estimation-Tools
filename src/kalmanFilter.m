@@ -39,20 +39,20 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilter(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %  
 % Outputs:
 %
-%   xhat    The Nxn array that contains the time history of the
+%   xhat    The N x nx array that contains the time history of the
 %           state vector estimates.
 %
-%   P       The nxnxN array that contains the time history of the
+%   P       The nx x nx x N array that contains the time history of the
 %           estimation error covariance matrices.
 %
-%   nu      The Nx1 vector of innovations. The first value is zero
+%   nu      The N x nz vector of innovations. The first value is zero
 %           because there is no measurement update at the first sample.
 %
 %   sigdig  The approximate number of accurate significant decimal places
 %           in the result. This is computed using the condition number of
 %           the covariance of the innovations, S.
 %
-%   epsnu   The Nx1 vector of the normalized innovation statistic. The
+%   epsnu   The N x 1 vector of the normalized innovation statistic. The
 %           first value is zero because there is no measurement update at
 %           the first sample time.
 %
@@ -110,7 +110,7 @@ for k = 1:N-1
     % covariance.
     nu(k+1,:) = (z(k+1,:).' - Hk(k+1)*xbarkp1).';
     Skp1 = Hk(k+1)*Pbarkp1*Hk(k+1)' + Rk(k+1);
-    Wkp1 = Pbarkp1*Hk(k+1)'/Skp1;
+    Wkp1 = (Pbarkp1*Hk(k+1)')/Skp1;
     xhat(k+1,:) = (xbarkp1 + Wkp1*nu(k+1,:).').';
     P(:,:,k+1) = Pbarkp1 - Wkp1*Skp1*Wkp1';
 

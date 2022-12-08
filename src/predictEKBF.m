@@ -28,26 +28,26 @@ delt = (tkp1-tk)/nRK;
 for jj = 1:nRK
 
     % Step a
-    [f,A,~] = feval(fc,t,x,uk,[],1,params);
-    Pdot = A*P + P*A' + Qc(t);
+    [f,A,D] = feval(fc,t,x,uk,[],1,params);
+    Pdot = A*P + P*A' + D*Qc(t)*D';
     dxa = f*delt;
     dPa = Pdot*delt;
 
     % Step b
-    [f,A,~] = feval(fc,t+0.5*delt,x+0.5*dxa,uk,[],1,params);
-    Pdot = A*(P+0.5*dPa) + (P+0.5*dPa)*A' + Qc(t+0.5*delt);
+    [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxa,uk,[],1,params);
+    Pdot = A*(P+0.5*dPa) + (P+0.5*dPa)*A' + D*Qc(t+0.5*delt)*D';
     dxb = f*delt;
     dPb = Pdot*delt;
 
     % Step c
-    [f,A,~] = feval(fc,t+0.5*delt,x+0.5*dxb,uk,[],1,params);
-    Pdot = A*(P+0.5*dPb) + (P+0.5*dPb)*A' + Qc(t+0.5*delt);
+    [f,A,D] = feval(fc,t+0.5*delt,x+0.5*dxb,uk,[],1,params);
+    Pdot = A*(P+0.5*dPb) + (P+0.5*dPb)*A' + D*Qc(t+0.5*delt)*D';
     dxc = f*delt;
     dPc = Pdot*delt;
 
     % Step d
-    [f,A,~] = feval(fc,t+delt,x+dxc,uk,[],1,params);
-    Pdot = A*(P+dPc) + (P+dPc)*A' + Qc(t+delt);
+    [f,A,D] = feval(fc,t+delt,x+dxc,uk,[],1,params);
+    Pdot = A*(P+dPc) + (P+dPc)*A' + D*Qc(t+delt)*D';
     dxd = f*delt;
     dPd = Pdot*delt;
 

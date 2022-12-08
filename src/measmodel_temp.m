@@ -1,4 +1,4 @@
-function [hj,Hj,d2hjdx2] = measmodel_temp(tj,x,i1stdrv,i2nddrv)
+function [hj,Hj,d2hjdx2] = measmodel_temp(tj,x,u,i1stdrv,params)
 %
 %  Copyright (c) 2022 Jeremy W. Hopwood.  All rights reserved.
 % 
