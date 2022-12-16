@@ -85,10 +85,7 @@ end
 
 % Pre-compute the inverse of the cholesky decompisition of R if necessary
 if ~isa(R,'function_handle') && size(R,3) == 1
-    [cholR,flag] = chol(R);
-    if flag>0
-        pause
-    end
+    cholR = chol(R);
     invcholR = inv(cholR);
 end
 
