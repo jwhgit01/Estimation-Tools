@@ -14,8 +14,9 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 %
 % Inputs:
 %
-%   t       The Nz x 1 sample time vector. If f is a discrete-time dynamic
-%           model, t must be givenn as an empty array, [].
+%   t       The (N+1) x 1 sample time vector. If f is a discrete-time dynamic
+%           model, t must be given as an empty array, []. The first element
+%           of t corresponds to the initial condition time at sample k=0.
 %
 %   z       The N x nz time history of measurements.
 %
@@ -53,34 +54,31 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 %  
 % Outputs:
 %
-%   xhat    The N x nx array that contains the time history of the
+%   xhat    The (N+1) x nx array that contains the time history of the
 %           state vector estimates.
 %
-%   P       The nx x nx x N array that contains the time history of the
+%   P       The nx x nx x (N+1) array that contains the time history of the
 %           estimation error covariance matrices.
 %
-%   nu      The Nx1 vector of innovations. The first value is zero
-%           because there is no measurement update at the first sample.
+%   nu      The N x nz vector of innovations.
+%
+%   epsnu   The N x 1 vector of the normalized innovation statistic.
 %
 %   sigdig  The approximate number of accurate significant decimal places
 %           in the result. This is computed using the condition number of
 %           the covariance of the innovations, S.
-%
-%   epsnu   The N x 1 vector of the normalized innovation statistic. The
-%           first value is zero because there is no measurement update at
-%           the first sample time.
 %
 
 % Check to see whether we have non-stationary noise, which may
 % be prescribed by an array of matrices or a function handle that is a
 % fucntion of the timestep/time.
 if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k); else, Rk = @(k) R; end
+    if size(R,3) > 1, Rk = @(k) R(:,:,k+1); else, Rk = @(k) R; end
 else
     Rk = R;
 end
 if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qk = @(k) Q(:,:,k); else, Qk = @(k) Q; end
+    if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
 else
     Qk = Q;
 end
@@ -95,8 +93,8 @@ N = size(z,1);
 nx = size(xhat0,1);
 nv = size(Qk(1),1);
 nz = size(z,2);
-xhat = zeros(N,nx);
-P = zeros(nx,nx,N);
+xhat = zeros(N+1,nx);
+P = zeros(nx,nx,N+1);
 nu = zeros(N,nz);
 epsnu = zeros(N,1);
 xhat(1,:) = xhat0.';
@@ -111,19 +109,23 @@ end
 
 % This loop performs one model propagation step and one measurement
 % update step per iteration.
-for k = 1:N-1
+for k = 0:N-1
 
-    disp(k);
-    
+    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+    kp1 = k+1;
+
     % Perform the dynamic propagation of the state estimate and the
     % covariance.
-    xhatk = xhat(k,:).';
-    uk = u(k,:).';
-    Pk = P(:,:,k);
+    xhatk = xhat(kp1,:).';
+    uk = u(kp1,:).';
+    Pk = P(:,:,kp1);
     if isempty(t)
         [xbarkp1,Fk,Gamk] = feval(f,k,xhatk,uk,[],1,params);
     else
-        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),t(k,1),t(k+1,1),nRK,f,1,params);
+        tk = t(kp1,1);
+        tkp1 = t(kp1+1,1);
+        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),tk,tkp1,...
+                                                           nRK,f,1,params);
     end
     Pbarkp1 = Fk*Pk*Fk' + Gamk*Qk(k)*Gamk';
 
@@ -133,13 +135,14 @@ for k = 1:N-1
     if isempty(t)
         [zbarkp1,Hkp1] = feval(h,k+1,xbarkp1,ukp1,1,params);
     else
-        [zbarkp1,Hkp1] = feval(h,t(k+1,1),xbarkp1,ukp1,1,params);
+        [zbarkp1,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,params);
     end
-    nu(k+1,:) = (z(k+1,:).'-zbarkp1).';
-    Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(k+1);
+    zkp1 = z(kp1,:).';
+    nu(kp1,:) = (zkp1-zbarkp1).';
+    Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(kp1);
     Wkp1 = Pbarkp1*Hkp1'/Skp1;
-    xhat(k+1,:) = (xbarkp1 + Wkp1*nu(k+1,:).').';
-    P(:,:,k+1) = Pbarkp1-Wkp1*Skp1*Wkp1';
+    xhat(kp1+1,:) = (xbarkp1 + Wkp1*nu(kp1,:).').';
+    P(:,:,kp1+1) = Pbarkp1-Wkp1*Skp1*Wkp1';
 
     % Check the condition number of Skp1 and infer the approximate accuracy
     % of the resulting estimate.
@@ -149,7 +152,7 @@ for k = 1:N-1
     end
 
     % Compute the innovation statistic, epsilon_nu(k).
-    epsnu(k+1) = nu(k+1,:)*(Skp1\nu(k+1,:).');
+    epsnu(kp1) = nu(kp1,:)*(Skp1\nu(kp1,:).');
 
 end
 

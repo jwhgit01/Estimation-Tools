@@ -1,4 +1,5 @@
-function [xhat,P] = unscentedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P0,nRK,alpha,beta,kappa,params)
+function [xhat,P] = unscentedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P0,nRK,...
+                                                   alpha,beta,kappa,params)
 %unscentedKalmanFilterDT
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
@@ -16,7 +17,7 @@ function [xhat,P] = unscentedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P0,nRK,alpha,bet
 %
 %   t       The N x 1 sample time vector. If f is a discrete-time dynamic
 %           model, t must be givenn as an empty array, []. The first sample
-%           occurs after the initial condition of t = t0 or k = 0;
+%           occurs after the initial condition at t = t0 or k = 0.
 %
 %   z       The N x nz time history of measurements.
 %
@@ -153,8 +154,8 @@ for k = 0:N-1
         Xbarkp1(:,1) = feval(f,k,xhatk,uk,zeros(nv,1),0,params);
         Zbarkp1(:,1) = feval(h,k,Xbarkp1(:,1),uk,0,params);
     else
-        tk = t(k,1);
-        tkp1 = t(k+1,1);
+        tk = t(kp1,1);
+        tkp1 = t(kp1+1,1);
         Xbarkp1(:,1) = c2dNonlinear(xhatk,uk,zeros(nv,1),tk,tkp1,nRK,f,0,params);
         Zbarkp1(:,1) = feval(h,tk,Xbarkp1(:,1),uk,0,params);
     end
