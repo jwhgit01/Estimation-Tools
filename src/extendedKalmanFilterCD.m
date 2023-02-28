@@ -1,50 +1,50 @@
-function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P0,nRK,params)
-%extendedKalmanFilterDT
+function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterCD(t,z,u,fc,h,Q,R,xhat0,P0,nRK,params)
+%extendedKalmanFilterCD 
 %
-% Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
+% Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
 %
-% This function performs discrete-time extended Kalman filtering for a
-% given time history of measurments and the discrete-time nonlinear system,
+% This function performs continuous-discrete (sometimes called hybrid)
+% extended Kalman filtering for a given time history of measurments and the
+% continuosu-time nonlinear system,
 %
-%                   x(k+1) = f(k,x(k),u(k),v(k))                    (1)
-%                     z(k) = h(k,x(k)) + w(k)                       (2)
+%                           dx/dt = f(t,x,u,vtil)                   (1)
 %
-% where v(k) is zero-mean Gaussian, white noise with covariance Q(k) and
-% w(k) is zero-mean Gaussian, white noise with covariance R(k).
+% with discrete measurements
+%
+%                           z(tk) = h(tk,xk) + w(k)                 (2)
+%
+% where vtil(k) is continuous-time zero-mean Gaussian, white noise with
+% power spectral density Q(t) and w(k) is discrete-time zero-mean Gaussian,
+% white noise with covariance R(k).
 %
 % Inputs:
 %
-%   t       The (N+1) x 1 sample time vector. If f is a discrete-time
-%           dynamic model, t must be given as an empty array, []. The first
-%           element of t corresponds to the initial condition time at
-%           sample k=0.
+%   t       The (N+1) x 1 sample time vector. The first element of t 
+%           corresponds to the initial condition occuring before the first
+%           measurement sample at t(k), k=1.
 %
 %   z       The N x nz time history of measurements.
 %
 %   u       The N x nu time history of system inputs (optional). If not
 %           applicable set to an empty array, [].
 % 
-%   f       The function handle that computes either the continuous-time
-%           dynamics if t is given as a vector of sample times or the
-%           discrete-time dynamics if t is empty. The first line of f must
-%           be in the form
+%   f       The function handle that computes the continuous-time dynamics
+%           of the system. The first line of f must be in the form
 %               [f,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
-%           or
-%               [fk,Fk,Gamk] = nonlindyn(k,xk,uk,vk,dervflag,params)
 % 
 %   h       The function handle that computes the modeled output of the
 %           system. The first line of h must be in the form
 %               [h,H] = measmodel(t,x,u,dervflag,params)
 %   
-%   Q       The discrete-time process noise covariance. It may be
-%           specificed as a constant matrix, a ()x()xN 3-dimensional
-%           array, or a function handle that is a function of the sample
-%           number, k. Recall, k=0 corresponds to t=0.
+%   Q       The power spectral density of the continuous-time process noise
+%           vtil. It may be specificed a a constant matrix, a ()x()xN
+%           3-dimensional array, or a function handle this is a function of
+%           time, t.
 %
 %   R       The discrete-time measurement noise covariance of w. It may be
-%           specificed as a constant matrix, a ()x()xN 3-dimensional
-%           array, or a function handle that is a function of the sample
-%           number, k. Recall, k=0 corresponds to t=0.
+%           specificed as a constant matrix, a ()x()xN 3-dimensional array,
+%           or a function handle that is a function of the sample number,k.
+%           Recall, k=0 corresponds to t=0.
 %
 %   xhat0   The nx x 1 initial state estimate.
 %
@@ -73,7 +73,7 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 %   sigdig  The approximate number of accurate significant decimal places
 %           in the result. This is computed using the condition number of
 %           the covariance of the innovations, S.
-%
+% 
 
 % Check to see whether we have non-stationary noise, which may
 % be prescribed by an array of matrices or a function handle that is a
@@ -84,16 +84,9 @@ else
     Rk = R;
 end
 if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
+    if size(Q,3) > 1, Qc = @(tk) Q(:,:,find(t>=tk,1)); else, Qc = @(t) Q; end
 else
-    Qk = Q;
-end
-
-% Check to see whether f is a difference or differential equation.
-if isempty(t)
-    DT = true;
-else
-    DT = false;
+    Qc = Q;
 end
 
 % number of runge-kutta integration steps
@@ -104,7 +97,6 @@ end
 % Get the problem dimensions and initialize the output arrays.
 N = size(z,1);
 nx = size(xhat0,1);
-nv = size(Qk(1),1);
 nz = size(z,2);
 xhat = zeros(N+1,nx);
 P = zeros(nx,nx,N+1);
@@ -132,30 +124,20 @@ for k = 0:N-1
     xhatk = xhat(kp1,:).';
     uk = u(kp1,:).';
     Pk = P(:,:,kp1);
-    if DT
-        [xbarkp1,Fk,Gamk] = feval(f,k,xhatk,uk,[],1,params);
-    else
-        tk = t(kp1,1);
-        tkp1 = t(kp1+1,1);
-        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),tk,tkp1,...
-                                                           nRK,f,1,params);
-    end
-    Pbarkp1 = Fk*Pk*Fk' + Gamk*Qk(k)*Gamk';
+    tk = t(kp1,1);
+    tkp1 = t(kp1+1,1);
+    [xbarkp1,Pbarkp1] = predictEKBF(xhatk,uk,Pk,Qc,tk,tkp1,nRK,fc,params);
 
     % Perform the measurement update of the state estimate and the
     % covariance.
-    ukp1 = u(k+1,:).';
-    if isempty(t)
-        [zbarkp1,Hkp1] = feval(h,kp1,xbarkp1,ukp1,1,params);
-    else
-        [zbarkp1,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,params);
-    end
     zkp1 = z(kp1,:).';
+    ukp1 = u(kp1,:).';
+    [zbarkp1,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,params);
     nu(kp1,:) = (zkp1-zbarkp1).';
     Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(kp1);
     Wkp1 = Pbarkp1*Hkp1'/Skp1;
     xhat(kp1+1,:) = (xbarkp1 + Wkp1*nu(kp1,:).').';
-    P(:,:,kp1+1) = Pbarkp1-Wkp1*Skp1*Wkp1';
+    P(:,:,kp1+1) = (eye(nx)-Wkp1*Hkp1)*Pbarkp1;
 
     % Check the condition number of Skp1 and infer the approximate accuracy
     % of the resulting estimate.

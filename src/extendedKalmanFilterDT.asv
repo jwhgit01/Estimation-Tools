@@ -14,10 +14,9 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 %
 % Inputs:
 %
-%   t       The (N+1) x 1 sample time vector. If f is a discrete-time
-%           dynamic model, t must be given as an empty array, []. The first
-%           element of t corresponds to the initial condition time at
-%           sample k=0.
+%   t       The (N+1) x 1 sample time vector. If f is a discrete-time dynamic
+%           model, t must be given as an empty array, []. The first element
+%           of t corresponds to the initial condition time at sample k=0.
 %
 %   z       The N x nz time history of measurements.
 %
@@ -36,15 +35,15 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 %           system. The first line of h must be in the form
 %               [h,H] = measmodel(t,x,u,dervflag,params)
 %   
-%   Q       The discrete-time process noise covariance. It may be
-%           specificed as a constant matrix, a ()x()xN 3-dimensional
-%           array, or a function handle that is a function of the sample
-%           number, k. Recall, k=0 corresponds to t=0.
-%
+%   Q       The discrete-time process noise covariance.
+%           It may be specificed as a constant matrices, ()x()xN
+%           3-dimensional arrays, or function handles that are functions of
+%           the sample number, k.
+
 %   R       The discrete-time measurement noise covariance of w. It may be
-%           specificed as a constant matrix, a ()x()xN 3-dimensional
-%           array, or a function handle that is a function of the sample
-%           number, k. Recall, k=0 corresponds to t=0.
+%           specificed as a constant matrix, a ()x()xN 3-dimensional array,
+%           or a function handle that is a function of the sample number,k.
+%           Recall, k=0 corresponds to t=0.
 %
 %   xhat0   The nx x 1 initial state estimate.
 %
@@ -79,7 +78,7 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterDT(t,z,u,f,h,Q,R,xhat0,P
 % be prescribed by an array of matrices or a function handle that is a
 % fucntion of the timestep/time.
 if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k); else, Rk = @(k) R; end
+    if size(R,3) > 1, Rk = @(k) R(:,:,k+1); else, Rk = @(k) R; end
 else
     Rk = R;
 end
@@ -87,13 +86,6 @@ if ~isa(Q,'function_handle')
     if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
 else
     Qk = Q;
-end
-
-% Check to see whether f is a difference or differential equation.
-if isempty(t)
-    DT = true;
-else
-    DT = false;
 end
 
 % number of runge-kutta integration steps
@@ -132,7 +124,7 @@ for k = 0:N-1
     xhatk = xhat(kp1,:).';
     uk = u(kp1,:).';
     Pk = P(:,:,kp1);
-    if DT
+    if isempty(t)
         [xbarkp1,Fk,Gamk] = feval(f,k,xhatk,uk,[],1,params);
     else
         tk = t(kp1,1);
@@ -146,7 +138,7 @@ for k = 0:N-1
     % covariance.
     ukp1 = u(k+1,:).';
     if isempty(t)
-        [zbarkp1,Hkp1] = feval(h,kp1,xbarkp1,ukp1,1,params);
+        [zbarkp1,Hkp1] = feval(h,k+1,xbarkp1,ukp1,1,params);
     else
         [zbarkp1,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,params);
     end
