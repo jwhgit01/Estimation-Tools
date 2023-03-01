@@ -1,60 +1,79 @@
 function [f,A,D] = nonlindyn_temp(t,x,u,vtil,dervflag,params)
 %nonlindyn_temp
 %
-% Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
+% Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
 %
 % This is a template function for a continuous-time, nonlinear model of a
 % dynamical control system,
 %
 %                       dx/dt = f(t,x,u,vtil)                       (1)
 %
-% where vtil(t) is a random process.
+% where vtil(t) is a continuous-time random process. Alternatively this
+% function may define a discrete-time difference equation,
 %
-%   t               The time at which xdot is to be known, in seconds.
+%                       x(k+1) = f(k,x(k),u(k),v(k))                (2)
 %
-%   x               The nx1 cart state vector at time t.
+% where v(k) is a discrete-time random process.
 %
-%   u               The mx1 control vector at time t.
+% Inputs:
 %
-%   vtil            The qx1 process noise disturbance vector at time t.
+%   t           The time at which dx/dt is evaluated. If the system is
+%               discrete, t=k is the sample number, where the initial
+%               condition occurs at k=0.
 %
-%   dervflag        A flag that tells whether (dervflag = 1) or not
-%                   (dervflag = 0) the partial derivatives df/dx and
-%                   df/dvtil must be calculated. If dervflag = 0, then
-%                   these outputs will be empty arrays.
+%   x           The nx x 1 state vector at time t (or sample k).
+%
+%   u           The nu x 1 control vector at time t (or sample k).
+%
+%   vtil        The nv x 1 process noise vector at time t (or sample k).
+%
+%   dervflag    A flag that determines whether (dervflag = 1) or not
+%               (dervflag = 0) the partial derivatives df/dx and df/dvtil
+%               must be calculated. If dervflag = 0, then these outputs
+%               will be empty arrays.
+%
+%   params      Any data type that is used to pass through constant
+%               parameters to the dynamics model.
 %  
-%  Outputs:
+% Outputs:
 %
-%   f               The time derivative of x at time t from Eq.(1).
+%   f           The time derivative of x at time t from Eq.(1). If
+%               discrete-time, f =: x(k+1) := fk is the value of the state
+%               vector at the next sample.
 %
-%   A               The partial derivative of f with respect to x. This is
-%                   a Jacobian matrix. It is evaluated and output only if
-%                   dervflag = 1.  Otherwise, an empty array is output.
+%   A           The Jacobian of f with respect to x. It is evaluated
+%               and output only if dervflag = 1. Otherwise, an empty array
+%               is output.
 %
-%   D               The partial derivative of f with respect to vtil. This
-%                   is a Jacobian matrix. It is evaluated and output only
-%                   if dervflag = 1.  Otherwise, an empty array is output.
+%   D           The Jacobian of f with respect to vtil. It is evaluated
+%               and output only if dervflag = 1. Otherwise, an empty array
+%               is output.
+%
 
-% Set up the known constants of the system.
-n = size(x,1);
-m = 1;
-k = 1;
-b = 0.1;
+% The necessary dimensions of the system.
+nx = 2;
+nu = 1;
+nv = 1;
+
+% Get the known constants of the system.
+m = params.m;
+k = params.k;
+b = params.b;
 
 % If vtil is empty, set it to zero.
 if isempty(vtil)
-    vtil = 0;
+    vtil = zeros(nv,1);
 end
 
 % If u is empty, set it to zero.
 if isempty(u)
-    u = 0;
+    u = zeros(nu,1);
 end
 
 % Evaluate the differential equations.
-f = zeros(n,1);
-f(1,1) = x(2);
-f(2,1) = -b/m*x(2) - k/m*x(1) + u + vtil;
+f = zeros(nx,1);
+f(1,1) = x(2,1);
+f(2,1) = -b/m*x(2,1) - k/m*x(1,1) + u + vtil;
 
 % Calculate the partial derivative if they are needed.
 if dervflag == 1
