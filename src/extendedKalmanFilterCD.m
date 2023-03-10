@@ -25,7 +25,7 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterCD(t,z,u,fc,h,Q,R,xhat0,
 %
 %   z       The N x nz time history of measurements.
 %
-%   u       The N x nu time history of system inputs (optional). If not
+%   u       The (N+1) x nu time history of system inputs (optional). If not
 %           applicable set to an empty array, [].
 % 
 %   f       The function handle that computes the continuous-time dynamics
@@ -39,12 +39,14 @@ function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterCD(t,z,u,fc,h,Q,R,xhat0,
 %   Q       The power spectral density of the continuous-time process noise
 %           vtil. It may be specificed a a constant matrix, a ()x()xN
 %           3-dimensional array, or a function handle this is a function of
-%           time, t.
+%           time, t. If it is a ()x()xN array, then the first element
+%           corresponds to t=0.
 %
 %   R       The discrete-time measurement noise covariance of w. It may be
 %           specificed as a constant matrix, a ()x()xN 3-dimensional array,
 %           or a function handle that is a function of the sample number,k.
-%           Recall, k=0 corresponds to t=0.
+%           Recall, k=0 corresponds to t=0. If it is a ()x()xN array, then
+%           the first element corresponds to k=1.
 %
 %   xhat0   The nx x 1 initial state estimate.
 %
