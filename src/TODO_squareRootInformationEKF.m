@@ -65,12 +65,12 @@ function [xhat,P,Rscrvvbar,Rscrvxbar,zscrvbar] = squareRootInformationEKF(t,z,u,
 % be prescribed by an array of matrices or a function handle that is a
 % fucntion of the timestep/time.
 if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k); else, Rk = @(k) R; end
+    if size(R,3) > 1, Rk = @(k) R(:,:,k+1); else, Rk = @(k) R; end
 else
     Rk = R;
 end
 if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qk = @(k) Q(:,:,k); else, Qk = @(k) Q; end
+    if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
 else
     Qk = Q;
 end
@@ -80,13 +80,13 @@ N = size(z,1);
 nx = size(xhat0,1);
 % nz = size(z,2);
 nv = size(Qk(1),1);
-xhat = zeros(N,nx);
-P = zeros(nx,nx,N);
+xhat = zeros(N+1,nx);
+P = zeros(nx,nx,N+1);
 xhat(1,:) = xhat0.';
 P(:,:,1) = inv(I0);
-Rscrvvbar = zeros(nv,nv,N);
-Rscrvxbar = zeros(nv,nx,N);
-zscrvbar = zeros(N,nv);
+Rscrvvbar = zeros(nv,nv,N+1);
+Rscrvxbar = zeros(nv,nx,N+1);
+zscrvbar = zeros(N+1,nv);
 
 % Compute the initial square-root information output and matrix
 Rscrxxk = chol(I0);
@@ -94,37 +94,42 @@ zscrxk = Rscrxxk*xhat0;
 
 % This loop performs one model propagation step and one measurement
 % update step per iteration.
-for k = 1:N-1
+for k = 0:N-1
 
     disp(k);
+    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+    kp1 = k+1;
     
     % Compute the Cholesky factor of the process noise at sample k.
     Rscrvvk = inv(chol(Qk(k)))';
 
     % Linearize the dynamics about xhat(k).
-    xhatk = xhat(k,:).';
-    uk = u(k,:).';
+    xhatk = xhat(kp1,:).';
+    uk = u(kp1,:).';
     if isempty(t)
         [xbarkp1,Fk,Gamk] = feval(f,k,xhatk,uk,zeros(nv,1),1,params);
     else
-        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),t(k,1),t(k+1,1),nRK,f,1,params);
+        tk = t(kp1,1);
+        tkp1 = t(kp1+1,1);
+        [xbarkp1,Fk,Gamk] = c2dNonlinear(xhatk,uk,zeros(nv,1),tk,tkp1,nRK,f,1,params);
     end
 
     % Compute a priori information matrices, Rscfvvbar(k), Rscvxbar(k+1),
     % and Rscxxbar(k+1) via QR factorization.
     [Taktr,Rscrbar] = qr([Rscrvvk,zeros(nv,nx); ...
-                         -(Rscrxxk/Fk(k))*Gamk,Rscrxxk/Fk]);
-    Rscrvvbar(:,:,k) = Rscrbar(1:nv,1:nv);
-    Rscrvxbar(:,:,k+1) = Rscrbar(1:nv,nv+1:nv+nx);
+                         -(Rscrxxk/Fk)*Gamk,Rscrxxk/Fk]);
+    Rscrvvbar(:,:,kp1) = Rscrbar(1:nv,1:nv);
+    Rscrvxbar(:,:,kp1+1) = Rscrbar(1:nv,nv+1:nv+nx);
     Rscxxbarkp1 = Rscrbar(nv+1:nv+nx,nv+1:nv+nx);
 
     % Propogate the SQIF outputs using Ta(k).
     if isempty(u)
         zscrbar = Taktr'*[zeros(nv,1);zscrxk];
     else
-        zscrbar = Taktr'*[zeros(nv,1);zscrxk+(Rscrxxk/Fk)*Gk(k)*u(k,:).'];
+        uk = u(kp1,:).';
+        zscrbar = Taktr'*[zeros(nv,1);zscrxk+(Rscrxxk/Fk)*Gk(k)*uk];
     end
-    zscrvbar(k,:) = zscrbar(1:nv,:).';
+    zscrvbar(kp1,:) = zscrbar(1:nv,:).';
     zscrxbarkp1 = zscrbar(nv+1:nv+nx,:);
 
     % Compute the Cholesky factor of the measurement noise covariance for
@@ -132,12 +137,14 @@ for k = 1:N-1
     Rakp1tr = chol(Rk(k+1))';
 
     % Linearize the measurment model about xbar(k+1).
-    ukp1 = u(k+1,:).';
-    [~,Hkp1] = feval(h,t(k+1),xbarkp1,ukp1,1,0,params);
+    ukp1 = u(kp1+1,:).';
+    tkp1 = t(kp1+1,1);
+    [~,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,0,params);
 
     % Compute the square-root measurement matrix and measurement.
+    zkp1 = z(kp1+1,:).';
     Hakp1 = Rakp1tr\Hkp1;
-    zakp1 = Rakp1tr\(z(k+1,:).');
+    zakp1 = Rakp1tr\zkp1;
     
     % Compute the a posteriori state information matrix, Rscrxxkp1.
     [Tbkp1tr,Rscr] = qr([Rscxxbarkp1;Hakp1]);
@@ -150,8 +157,8 @@ for k = 1:N-1
 
     % Compute and store the state estimate and its covariance.
     Rscrxxkp1inv = inv(Rscrxxkp1);
-    xhat(k+1,:) = (Rscrxxkp1\zscrxkp1).';
-    P(:,:,k+1) = Rscrxxkp1inv*Rscrxxkp1inv';
+    xhat(kp1+1,:) = (Rscrxxkp1\zscrxkp1).';
+    P(:,:,kp1+1) = Rscrxxkp1inv*Rscrxxkp1inv';
 
     % Update the square root information output and matrix.
     Rscrxxk = Rscrxxkp1;

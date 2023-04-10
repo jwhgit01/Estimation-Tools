@@ -84,7 +84,7 @@ epsilon = params.epsilon;
 L1 = params.L1;
 L2 = params.L2;
 phi1 = params.phi1;
-phi2 = parsms.phi2;
+phi2 = params.phi2;
 
 % Get the nonlinear dynamics function handle.
 nonlindyn = params.nonlindyn;
@@ -93,20 +93,27 @@ nonlindyn = params.nonlindyn;
 x1hat = xhat(1:ny,1);
 x2hat = xhat(ny+1:nx,1);
 
+% Add x2hat to the params for the ability to gain schedule.
+params.x2hat = x2hat;
+
 % Check to see whether L2 is a function or constant matrix. If it is a
 % function, evaluate it at the current measurement.
-if ~isa(L2,'function_handle')
-    L2 = L2(y);
+if isa(L2,'function_handle')
+    L2 = L2(y,u,params);
 end
 
 % Evaluate the nonlinear dynamics at the state current estimate.
-fhat = feval(nonlindyn,t,xhat,u,[],0,params);
+fhat = feval(nonlindyn,t,xhat,u,y,0,params);
 
 % Compute the scalar injection gain, k.
-k = epsilon + phi1(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u) ...
-            + phi2(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u)^2;
+x1tilde = x1hat - y;
+eta2 = x2hat - (L2/L1)*x1tilde;
+k = epsilon + phi1(x1tilde,y,eta2,u,params) + phi2(x1tilde,y,eta2,u,params)^2;
 
 % Compute the observer dynamics, dxhat/dt.
-dxhatdt = fhat - L*k*(x1hat-y);
+L = [L1;L2];
+yd = x1tilde;
+v = -k*yd;
+dxhatdt = fhat + L*v;
 
 end

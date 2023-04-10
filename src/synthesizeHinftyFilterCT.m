@@ -41,7 +41,7 @@ nw = size(G,2);
 ny = size(C,1);
 
 % Set up CVX
-cvx_solver SDPT3
+% cvx_solver SDPT3
 cvx_precision best
 epsilon = 100*eps;
 

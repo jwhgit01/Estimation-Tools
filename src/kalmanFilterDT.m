@@ -33,7 +33,7 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %           specified as contant matrices, (.)x(.)xN arrays of matrices, or
 %           function handles that returns a matrix given the time step k.
 %
-%   xhat0   The nx x 1 initial state estimate.
+%   xhat0   The nx x 1 initial state estimate occuring at sample k=0.
 %
 %   P0      The nx x nx symmetric positive definite initial state
 %           estimation error covariance matrix.

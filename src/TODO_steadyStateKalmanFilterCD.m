@@ -77,7 +77,7 @@ S = H*Pbar*H' + R;
 for k = 1:N-1
 
     % Perform the dynamic propagation of the state estimate and the
-    % covariance.
+    % covariance. FIX THIS
     if isempty(u) || isempty(G)
         xbarkp1 = F*xhat(k,:).';
     else

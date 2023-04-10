@@ -103,10 +103,10 @@ end
 N = size(y,1);
 nx = size(xhat0,1);
 ny = size(y,2);
-xhat = zeros(N+1,nx);
+xhat = zeros(N,nx);
 xhat(1,:) = xhat0.';
-phi1hist = zeros(N+1,1);
-phi2hist = zeros(N+1,1);
+phi1hist = zeros(N,1);
+phi2hist = zeros(N,1);
 
 % if no inputs, set to zero
 if isempty(u)
@@ -130,25 +130,44 @@ params.nonlindyn = f;
 
 % This loop integreates the continuous-time observer from one measurement
 % to the next.
-for k = 1:N
+for k = 1:N-1
   
     % Obtain the current state estimate, inputs, and measurements
+    disp(['k = ' num2str(k)])
     xhatk = xhat(k,:).';
+    disp(xhatk')
     yk = y(k,:).';
     uk = u(k,:).';
     tk = t(k,1);
     tkp1 = t(k+1,1);
 
     % Compute the gains phi1 and phi2 for the current time step and store.
+    % Add x2hat to the params for the ability to gain schedule.
     x1hatk = xhatk(1:ny,1);
     x2hatk = xhatk(ny+1:nx,1);
+    %
+%     figure(1)
+%     plot(tk,x1hatk(1:3),'or')
+%     plot(tk,x1hatk(4:6),'ob')
+%     plot(tk,x1hatk(7:9),'og')
+%     plot(tk,x1hatk(10:12),'oc')
+%     figure(2)
+%     plot(tk,x2hatk(1:3),'or')
+%     plot(tk,x2hatk(4:6),'ob')
+    %
+    params.x2hat = x2hatk;
     if L2fun
-        L2k = L2(yk);
+        L2k = L2(yk,uk,params);
     else
         L2k = L2;
     end
-    phi1hist(k,1) = phi1(x1hatk-yk,yk,x2hatk-(L2k/L1)*(x1hatk-yk),uk);
-    phi2hist(k,1) = phi2(x1hatk-yk,yk,x2hatk-(L2k/L1)*(x1hatk-yk),uk);
+    x1tildek = x1hatk - yk;
+    eta2k = x2hatk - (L2k/L1)*x1tildek;
+    phi1k = phi1(x1tildek,yk,eta2k,uk,params);
+    phi2k = phi2(x1tildek,yk,eta2k,uk,params);
+    phi1hist(k,1) = phi1k;
+    phi2hist(k,1) = phi2k;
+    disp(['phi1 = ' num2str(phi1k) ', phi2 = ' num2str(phi2k)])
 
     % Integrate the observer to the next meaurement and store the result.
     xhatkp1 = c2dNonlinear(xhatk,uk,yk,tk,tkp1,nRK,@modelPBO,0,params);
