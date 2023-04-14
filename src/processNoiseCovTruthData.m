@@ -1,4 +1,4 @@
-function [Q,nu] = processNoiseCovTruthData(t,x,xdot,u,nonlindyn,params)
+function [Q,nu] = processNoiseCovTruthData(t,x,u,nonlindyn,params)
 %processNoiseCovTruthData
 %
 % Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
@@ -7,12 +7,10 @@ function [Q,nu] = processNoiseCovTruthData(t,x,xdot,u,nonlindyn,params)
 %
 % Inputs:
 %
-%   t           The N x 1 array of truth data sample times.
+%   t           The N x 1 array of truth data sample times. If nonlindyn is
+%               a discrete-time system, set as the empty array t = [].
 %
 %   x           The N x nx array of truth data state vector values.
-%
-%   xdot        The N x nx array of (smoothed) numerical derivatives of the
-%               time history of x.
 %
 %   u           The N x nu array of system inputs.
 %
@@ -32,7 +30,8 @@ function [Q,nu] = processNoiseCovTruthData(t,x,xdot,u,nonlindyn,params)
 %  
 % Outputs:
 %
-%   Q           The approximated constant nx x nx process noise covariance.
+%   Q           The approximated constant discrete-time nx x nx process
+%               noise covariance.
 %
 %   nu          The N x nx time history of the difference between the
 %               numerically-computed and modeled state time derivatives.
@@ -40,8 +39,8 @@ function [Q,nu] = processNoiseCovTruthData(t,x,xdot,u,nonlindyn,params)
 
 % Initialize necessary outputs.
 N = size(x,1);
-nx = sixe(x,2);
-nu = zeros(N,nx);
+nx = size(x,2);
+fk = zeros(N-1,nx);
 
 % Check to see whether the system is discrete or continuous-time.
 if isempty(t)
@@ -50,24 +49,28 @@ else
     DT = false;
 end
 
-% Loop through the samples and compute the residual between the modeled and
-% numerically-derived state dynamics.
-for k = 1:N
+% Loop through the samples and compute the modeled state propogation.
+for k = 0:N-2
+
+    % Arrays are 1-indexed, but the first sample occurs at k = 0.
+    kp1 = k+1;
 
     % Compute the modeled dynamics
+    xk = x(kp1,:).';
+    uk = u(kp1,:).';
     if DT
-        tk = k-1;
+        fk(kp1,:) = nonlindyn(k,xk,uk,[],0,params).';
     else
-        tk = t(k,1);
+        tk = t(kp1,1);
+        tkp1 = t(kp1+1,1);
+        fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,nonlindyn,0,params);
     end
-    xk = x(k,:).';
-    uk = u(k,:).';
-    xdotk_model = nonlindyn(tk,xk,uk,[],0,params).';
-
-    % The difference between the model and the truth data.
-    nu(k,:) = xdot(k,:) - xdotk_model;
-
+    
 end
+
+% The difference between the modeled and actual state propogation.
+xkp1 = x(2:N,:);
+nu = xkp1 - fk;
 
 % Assuming stationary noise, approximate the covariance.
 Q = cov(nu);
