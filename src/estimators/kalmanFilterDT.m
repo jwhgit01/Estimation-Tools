@@ -4,7 +4,7 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
 %
 % This function performs linear Kalman filtering for a given time history
-% of measurments and the discrete-time linear system,
+% of N measurments and the discrete-time linear system,
 %
 %           x(k+1) = F(k)*x(k) + G(k)*u(k) + Gam(k)*v(k)            (1)
 %             z(k) = H(k)*x(k) + w(k)                               (2)

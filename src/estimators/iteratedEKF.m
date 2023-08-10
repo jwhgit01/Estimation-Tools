@@ -121,6 +121,7 @@ for k = 0:N-1
 
     % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
     kp1 = k+1;
+    fprintf('%i\n',k)
     
     % Measurement model used in the Gauss-Newton iterations.
     ukp1 = u(kp1,:).';

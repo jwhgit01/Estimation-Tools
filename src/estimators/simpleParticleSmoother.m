@@ -69,12 +69,12 @@ function [xs,P] = simpleParticleSmoother(t,z,u,f,hk,Q,R,xhat0,P0,Ns,nRK,params)
 % be prescribed by an array of matrices or a function handle that is a
 % fucntion of the timestep/time.
 if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k); else, Rk = @(k) R; end
+    if size(R,3) > 1, Rk = @(k) R(:,:,k+1); else, Rk = @(k) R; end
 else
     Rk = R;
 end
 if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qk = @(k) Q(:,:,k); else, Qk = @(k) Q; end
+    if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
 else
     Qk = Q;
 end
@@ -88,8 +88,8 @@ end
 N = size(z,1);
 nx = size(xhat0,1);
 nv = size(Qk(1),1);
-xs = zeros(N,nx);
-P = zeros(nx,nx,N);
+xs = zeros(N+1,nx);
+P = zeros(nx,nx,N+1);
 P(:,:,1) = P0;
 logwtil = zeros(1,Ns);
 Xbar = zeros(N,nx,Ns);
@@ -113,7 +113,8 @@ Xk = xhat0 + Sx0*randn(nx,Ns);
 % update step per iteration.
 for k = 1:N-1
 
-    disp(k);
+    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+    kp1 = k+1;
 
     % Generate process noise values for the particles by sampling vi(k)
     % independently from N(0;Q(k)) for i = 1,...,Ns. This is done in
@@ -123,8 +124,8 @@ for k = 1:N-1
 
     % Dynamically propagate the particles and store the log of their
     % un-normalized weights.
-    uk = u(k,:).';
-    ukp1 = u(k+1,:).';
+    uk = u(kp1,:).';
+    ukp1 = u(kp1+1,:).';
     zkp1 = z(k+1,:).';
     Rkp1inv = inv(Rk(k+1));
     for ii = 1:Ns
@@ -149,7 +150,7 @@ for k = 1:N-1
     end
 
     % Store particle trajectory and update Xk.
-    Xbar(k+1,:,:) = Xkp1;
+    Xbar(kp1+1,:,:) = Xkp1;
     Xk = Xkp1;
 
 end
@@ -161,9 +162,9 @@ for ii = 1:Ns
     xs = xs + w(ii)*(Xbar(:,:,ii));
 end
 for ii = 1:Ns
-    for k = 2:N
-        xktil = (Xbar(k,:,ii)-xs(k,:)).';
-        P(:,:,k) = P(:,:,k) + w(ii)*(xktil*xktil');
+    for kp1 = 2:N+1
+        xktil = (Xbar(kp1,:,ii)-xs(kp1,:)).';
+        P(:,:,kp1) = P(:,:,kp1) + w(ii)*(xktil*xktil');
     end
 end
 

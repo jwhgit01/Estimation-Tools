@@ -23,7 +23,12 @@ function [Q,nu] = processNoiseCovTruthData(t,x,u,nonlindyn,params)
 %                   [xkp1,Fk,Gamk] = nonlindyn(k,xk,uk,vk,dervflag,params)
 %               for a discrete-time system. If the system is given in
 %               discrete-time, then the first sample must correspond to
-%               sample number k = 0.
+%               sample number k = 0. If the system is linear, 
+%                   dxdt = A*x + B*u + vtil  or
+%                   x(k+1) = F*x(k) + G*u(k) + w(k)
+%               then nonlindyn may be given as a cell array of the state
+%               space matrices {A,B} or {F,G}.
+
 %
 %   params      A struct of constants that get passed to the dynamics model
 %               and measurement model functions.
@@ -40,6 +45,7 @@ function [Q,nu] = processNoiseCovTruthData(t,x,u,nonlindyn,params)
 % Initialize necessary outputs.
 N = size(x,1);
 nx = size(x,2);
+nu = size(u,2);
 fk = zeros(N-1,nx);
 
 % Check to see whether the system is discrete or continuous-time.
@@ -47,6 +53,23 @@ if isempty(t)
     DT = true;
 else
     DT = false;
+end
+
+% Check to see whether the system is linear.
+if iscell(nonlindyn)
+    LTI = true;
+    if DT
+        F = nonlindyn{1};
+        G = nonlindyn{2};
+    else
+        dt = median(diff(t));
+        sysc = ss(nonlindyn{1},nonlindyn{2},eye(nx),zeros(nx,nu));
+        sysd = c2d(sysc,dt);
+        F = sysd.A;
+        G = sysd.B;
+    end
+else
+    LTI = false;
 end
 
 % Loop through the samples and compute the modeled state propogation.
@@ -58,12 +81,14 @@ for k = 0:N-2
     % Compute the modeled dynamics
     xk = x(kp1,:).';
     uk = u(kp1,:).';
-    if DT
-        fk(kp1,:) = nonlindyn(k,xk,uk,[],0,params).';
+    if LTI
+        fk(kp1,:) = (F*xk + G*uk).';
     else
-        tk = t(kp1,1);
-        tkp1 = t(kp1+1,1);
-        fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,nonlindyn,0,params);
+        if DT
+            fk(kp1,:) = feval(nonlindyn,k,xk,uk,[],0,params).';
+        else
+            fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,nonlindyn,0,params);
+        end
     end
     
 end

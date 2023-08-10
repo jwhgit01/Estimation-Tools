@@ -67,22 +67,22 @@ function [xs,Pxxs,vs,Pvvs,Pvxs] = squareRootInformationSmoother(z,u,F,G,Gam,H,Q,
 % function handle that is a fucntion of the time step k. If an input is a
 % constant matrix or a 3-dim array, make it an anonymous function.
 if ~isa(F,'function_handle')
-    if size(F,3) > 1, Fk = @(k) F(:,:,k); else, Fk = @(k) F; end
+    if size(F,3) > 1, Fk = @(k) F(:,:,k+1); else, Fk = @(k) F; end
 end
 if ~isempty(G) && ~isa(G,'function_handle')
-    if size(G,3) > 1, Gk = @(k) F(:,:,k); else, Gk = @(k) G; end
+    if size(G,3) > 1, Gk = @(k) G(:,:,k+1); else, Gk = @(k) G; end
 end
 if ~isa(Gam,'function_handle')
-    if size(Gam,3) > 1, Gamk = @(k) Gam(:,:,k); else, Gamk = @(k) Gam; end
+    if size(Gam,3) > 1, Gamk = @(k) Gam(:,:,k+1); else, Gamk = @(k) Gam; end
 end
 if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qk = @(k) Q(:,:,k); else, Qk = @(k) Q; end
+    if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
 end
 
 % Get the problem dimensions.
 N = size(z,1);
 nx = size(xhat0,1);
-nv = size(Qk(1),1);
+nv = size(Qk(0),1);
 
 % Perform square root information filtering forward in time.
 [xhat,Phat,Rscrvvbar,Rscrvxbar,zscrvbar] = ...
@@ -107,12 +107,15 @@ else
 end
 
 % This loop performs one smoothing step backwards in time per iteration.
-for k = N-1:-1:1
+for k = N-1:-1:0
+
+    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+    kp1 = k+1;
     
     % Use QR factorization to compute Rscrvv(k), Rscrvx(k), Rscrxx(k), and
     % Tc(k).
-    A11 = Rscrvvbar(:,:,k)+Rscrvxbar(:,:,k+1)*Gamk(k);
-    A12 = Rscrvxbar(:,:,k+1)*Fk(k);
+    A11 = Rscrvvbar(:,:,kp1)+Rscrvxbar(:,:,kp1+1)*Gamk(k);
+    A12 = Rscrvxbar(:,:,kp1+1)*Fk(k);
     A21 = Rscrxxskp1*Gamk(k);
     A22 = Rscrxxskp1*Fk(k);
     [Tcktr,Rscrs] = qr([A11,A12;A21,A22]);
@@ -122,25 +125,25 @@ for k = N-1:-1:1
     
     % Compute the smoothed square root information outputs.
     if isempty(u) || isempty(G)
-        zscrsk = Tcktr'*[zscrvbar(k,:).';zscrxskp1];
+        zscrsk = Tcktr'*[zscrvbar(kp1,:).';zscrxskp1];
     else
-        zscrsk = Tcktr'*[zscrvbar(k,:).'-Rscrvxbar(:,:,k+1)*Gk(k)*u(k,:).';...
-                         zscrxskp1-Rscrxxskp1*Gk(k)*u(k,:).'];
+        zscrsk = Tcktr'*[zscrvbar(kp1,:).'-Rscrvxbar(:,:,kp1+1)*Gk(k)*u(kp1,:).';...
+                         zscrxskp1-Rscrxxskp1*Gk(k)*u(kp1,:).'];
     end
     zscrvsk = zscrsk(1:nv,:);
     zscrxsk = zscrsk(nv+1:nv+nx,:); 
 
     % Compute and store the smoothed state estimate and its covariance.
     Rscrxxskinv = inv(Rscrxxsk);
-    xs(k,:) = (Rscrxxsk\zscrxsk).';
-    Pxxs(:,:,k) = Rscrxxskinv*Rscrxxskinv';
+    xs(kp1,:) = (Rscrxxsk\zscrxsk).';
+    Pxxs(:,:,kp1) = Rscrxxskinv*Rscrxxskinv';
 
     % If desired, compute the smoothed noise estimate along with its
     % covariance and cross-covariance with x.
     if ivs
-        vs(k,:) = Rscrvvsk\(zscrvsk-Rscrvxsk*xs(k,:).');
-        Pvvs(:,:,k) = Rscrvvsk\(eye(nv)+Rscrvxsk*Pxxs(:,:,k)*Rscrvxsk')/(Rscrvvsk');
-        Pvxs(:,:,k) = -(Rscrvvsk\Rscrvxsk)*Pxxs(:,:,k);
+        vs(kp1,:) = Rscrvvsk\(zscrvsk-Rscrvxsk*xs(kp1,:).');
+        Pvvs(:,:,kp1) = Rscrvvsk\(eye(nv)+Rscrvxsk*Pxxs(:,:,kp1)*Rscrvxsk')/(Rscrvvsk');
+        Pvxs(:,:,kp1) = -(Rscrvvsk\Rscrvxsk)*Pxxs(:,:,kp1);
     end
 
     % Update zscrxs(k+1) and Rscrxxs(k+1) for next iteration.

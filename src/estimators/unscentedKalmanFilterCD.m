@@ -126,6 +126,7 @@ for k = 0:N-1
     % Recall, arrays are 1-indexed, but the initial condition occurs before
     % the first sample.
     kp1 = k+1;
+    fprintf('%i\n',k)
     
     % Propogate the sigma points through the dynamics.
     tk = t(kp1);

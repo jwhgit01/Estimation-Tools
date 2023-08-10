@@ -20,6 +20,9 @@ function [Q,nu] = processNoisePSDTruthData(t,x,xcirc,u,nonlindyn,params)
 %               continuous-time dynamics of the system. The first line of
 %               nonlindyn must be in the form
 %                   [dxdt,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
+%               If the system is linear with
+%                   dxdt = A*x + B*u + vtil;
+%               nonlindyn may be given as the cell array {A,B}.
 %
 %   params      A struct of constants that get passed to the dynamics model
 %               and measurement model functions.
@@ -38,12 +41,25 @@ N = size(x,1);
 nx = size(x,2);
 xdot = zeros(N,nx);
 
+% Check to see if the system is linear
+if iscell(nonlindyn)
+    LTI = true;
+    A = nonlindyn{1};
+    B = nonlindyn{2};
+else
+    LTI = false;
+end
+
 % Loop through the samples and compute the modeled state derivative.
 for k = 1:N
     tk = t(k,1);
     xk = x(k,:).';
     uk = u(k,:).';
-    xdot(k,:) = nonlindyn(tk,xk,uk,[],0,params).';
+    if LTI
+        xdot(k,:) = (A*xk + B*uk).';
+    else
+        xdot(k,:) = feval(nonlindyn,tk,xk,uk,[],0,params).';
+    end
 end
 
 % The difference between the modeled and nuumerical state derivative.

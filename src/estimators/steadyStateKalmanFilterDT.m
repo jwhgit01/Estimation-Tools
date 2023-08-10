@@ -31,7 +31,7 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,Q,R,
 %  
 % Outputs:
 %
-%   xhat    The N x nx array that contains the time history of the
+%   xhat    The (N+1) x nx array that contains the time history of the
 %           state vector estimates.
 %
 %   P       The nx x nx steady-state estimation error covariance matrix.
@@ -63,7 +63,7 @@ xhat(1,:) = xhat0.';
 W = Wtr';
 
 % Compute the a posteriori steady-state covariance. Use the formula used in
-% the legacy Matlab command dlqe.m
+% the legacy Matlab command dlqe.m. TODO: Check this.
 M = Pbar*H'/(R+H*Pbar*H');
 P = (eye(nx)-M*H)*Pbar;
 P = (P+P')/2;
@@ -74,20 +74,23 @@ S = H*Pbar*H' + R;
 
 % This loop performs one model propagation step and one measurement
 % update step per iteration.
-for k = 1:N-1
+for k = 0:N-1
+
+    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+    kp1 = k+1;
 
     % Perform the dynamic propagation of the state estimate and the
     % covariance.
     if isempty(u) || isempty(G)
-        xbarkp1 = F*xhat(k,:).';
+        xbarkp1 = F*xhat(kp1,:).';
     else
-        xbarkp1 = F*xhat(k,:).' + G*u(k,:).';
+        xbarkp1 = F*xhat(kp1,:).' + G*u(kp1,:).';
     end
 
     % Perform the measurement update of the state estimate and the
     % covariance.
     nu(k+1,:) = (z(k+1,:).' - H*xbarkp1).';
-    xhat(k+1,:) = (xbarkp1 + W*nu(k+1,:).').';
+    xhat(kp1+1,:) = (xbarkp1 + W*nu(k+1,:).').';
 
     % Compute the innovation statistic, epsilon_nu(k).
     epsnu(k+1) = nu(k+1,:)*(S\nu(k+1,:).');
