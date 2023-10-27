@@ -16,3 +16,9 @@ plot(t,x)
 plot(t,xhat,'--')
 hold off
 grid on
+
+figure
+hold on
+plot(t,[0;epsnu])
+hold off
+grid on
