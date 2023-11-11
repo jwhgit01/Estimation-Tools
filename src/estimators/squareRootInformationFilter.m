@@ -1,4 +1,4 @@
-function [xhat,P,Rscrvvbar,Rscrvxbar,zscrvbar] = squareRootInformationFilter(z,u,F,G,Gam,H,Q,R,xhat0,I0)
+function [xhat,P,Rscrvvbar,Rscrvxbar,zscrvbar,xbar] = squareRootInformationFilter(z,u,F,G,Gam,H,Q,R,xhat0,I0)
 %squareRootInformationFilter 
 %
 %  Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
@@ -54,6 +54,8 @@ function [xhat,P,Rscrvvbar,Rscrvxbar,zscrvbar] = squareRootInformationFilter(z,u
 % 
 %   zscrvbar
 %
+%   xbar    State prediction
+%
 
 % Check to see whether we have a time-varying or time-invariant system. A
 % time-varying system may be prescribed by an array of matrices or a
@@ -89,6 +91,7 @@ P(:,:,1) = inv(I0);
 Rscrvvbar = zeros(nv,nv,N+1);
 Rscrvxbar = zeros(nv,nx,N+1);
 zscrvbar = zeros(N+1,nv);
+xbar = zeros(N,nx);
 
 % Compute the initial square-root information output and matrix
 Rscrxxk = chol(I0);
@@ -120,6 +123,7 @@ for k = 0:N-1
     end
     zscrvbar(kp1,:) = zscrbar(1:nv,:).';
     zscrxbarkp1 = zscrbar(nv+1:nv+nx,:);
+    xbar(kp1,:) = Rscxxbarkp1\zscrxbarkp1;
 
     % Compute the Cholesky factor of the measurement noise covariance for
     % sample k+1.
