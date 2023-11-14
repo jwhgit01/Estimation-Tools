@@ -1,4 +1,4 @@
-function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0)
+function [xhat,P,Pbar,W,nu,epsnu,xbar] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,D,Q,R,xhat0)
 %steadyStateKalmanFilterDT 
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
@@ -8,7 +8,7 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,Q,R,
 % system,
 %
 %   x(k+1) = F*x(k) + G*u(k) + Gam*v(k)                             (1)
-%     z(k) = H*x(k) + w(k)                                          (2)
+%     z(k) = H*x(k) + D*u(k) + w(k)                                 (2)
 %
 % where v(k) is zero-mean Gaussian, white noise with constant covariance Q
 % and w(k) is zero-mean Gaussian, white noise with constant covariance R.
@@ -22,7 +22,7 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,Q,R,
 % 
 %   F,G,Gam The system matrices in Eq.(1).
 % 
-%   H       The measurement model matrix in Eq.(2).
+%   H,D     The measurement model matrices in Eq.(2).
 %   
 %   Q,R     The process and measurement noise covariance.
 %
@@ -48,6 +48,10 @@ function [xhat,P,Pbar,W,nu,epsnu] = steadyStateKalmanFilterDT(z,u,F,G,Gam,H,Q,R,
 %           first value is zero because there is no measurement update at
 %           the first sample time.
 %
+%   xbar    The N x nx array that contains the time history of the
+%           state predictions. The index of the estimate is the
+%           sample number.
+%
 
 % Get the problem dimensions and initialize the output arrays.
 N = size(z,1);
@@ -56,17 +60,15 @@ nz = size(z,2);
 xhat = zeros(N,nx);
 nu = zeros(N,nz);
 epsnu = zeros(N,1);
+xbar = zeros(N,nx);
 xhat(1,:) = xhat0.';
 
 % Solve the discrete-time Ricatti equation.
 [Pbar,Wtr,~] = idare(F',H',Gam*Q*Gam',R,[],[]);
 W = Wtr';
 
-% Compute the a posteriori steady-state covariance. Use the formula used in
-% the legacy Matlab command dlqe.m. TODO: Check this.
-M = Pbar*H'/(R+H*Pbar*H');
-P = (eye(nx)-M*H)*Pbar;
-P = (P+P')/2;
+% Compute the a posteriori steady-state covariance.
+P = (eye(nx)-W*H)*Pbar;
 
 % Compute the covariance of the innovations. This is used to compute the
 % innovation statisctic epsilon_nu.
@@ -86,10 +88,16 @@ for k = 0:N-1
     else
         xbarkp1 = F*xhat(kp1,:).' + G*u(kp1,:).';
     end
+    xbar(kp1,:) = xbarkp1.';
 
     % Perform the measurement update of the state estimate and the
     % covariance.
-    nu(k+1,:) = (z(k+1,:).' - H*xbarkp1).';
+    if isempty(u) || isempty(G)
+        ybarkp1 = H*xhat(kp1,:).';
+    else
+        ybarkp1 = H*xhat(kp1,:).' + D*u(kp1,:).';
+    end
+    nu(k+1,:) = (z(k+1,:).' - ybarkp1).';
     xhat(kp1+1,:) = (xbarkp1 + W*nu(k+1,:).').';
 
     % Compute the innovation statistic, epsilon_nu(k).

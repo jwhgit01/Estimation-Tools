@@ -1,4 +1,4 @@
-function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
+function [xhat,P,nu,epsnu,sigdig,xbar] = kalmanFilterDT(z,u,F,G,Gam,H,D,Q,R,xhat0,P0)
 %kalmanFilterDT
 %
 % Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
@@ -7,7 +7,7 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 % of N measurments and the discrete-time linear system,
 %
 %           x(k+1) = F(k)*x(k) + G(k)*u(k) + Gam(k)*v(k)            (1)
-%             z(k) = H(k)*x(k) + w(k)                               (2)
+%             z(k) = H(k)*x(k) + D(k)*u(k) + w(k)                   (2)
 %
 % where v(k) is zero-mean Gaussian, white noise with covariance Q(k) and
 % w(k) is zero-mean Gaussian, white noise with covariance R(k).
@@ -17,7 +17,7 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %   z       The N x nz time history of measurements. The first sample
 %           occurs after the initial condition of k = 0;
 %
-%   u       The N x nu time history of system inputs (optional). The first
+%   u       The (N+1) x nu time history of system inputs (optional). The first
 %           input occurs at k = 0. If not applicable set to an empty array.
 % 
 %   F,G,Gam The system matrices in Eq.(1). These may be specified as
@@ -25,9 +25,9 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %           handles that return a matrix given the sample k. Note that
 %           if there is no input, G may be given as an empty array, [].
 % 
-%   H       The measurement model matrix in Eq.(2). This may be specified
-%           as a contant matrix, an (.)x(.)xN array, or a function handle
-%           that returns a matrix given the sample k.
+%   H,D     The measurement model matrices in Eq.(2). These may be specified
+%           as contant matrices, (.)x(.)xN arrays, or function handles
+%           that return the matrix at sample k.
 %   
 %   Q,R     The process and measurement noise covariance. These may be
 %           specified as contant matrices, (.)x(.)xN arrays of matrices, or
@@ -47,8 +47,8 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %   P       The nx x nx x (N+1) array that contains the time history of the
 %           estimation error covariance matrices.
 %
-%   nu      The (N+1) x nz vector of innovations. The first value is zero
-%           because there is no measurement update at the first sample.
+%   nu      The N x nz vector of innovations. The index of the estimate is the
+%           sample number.
 %
 %   epsnu   The (N+1) x 1 vector of the normalized innovation statistic. The
 %           first value is zero because there is no measurement update at
@@ -58,6 +58,10 @@ function [xhat,P,nu,epsnu,sigdig] = kalmanFilterDT(z,u,F,G,Gam,H,Q,R,xhat0,P0)
 %           in the result. This is computed using the condition number of
 %           the covariance of the innovations, S.
 %
+%   xbar    The N x nx array that contains the time history of the
+%           state predictions. The index of the estimate is the
+%           sample number.
+%
 
 % Get the problem dimensions and initialize the output arrays.
 N = size(z,1);
@@ -65,12 +69,13 @@ n = size(xhat0,1);
 p = size(z,2);
 xhat = zeros(N+1,n);
 P = zeros(n,n,N+1);
-nu = zeros(N+1,p);
-epsnu = zeros(N+1,1);
+nu = zeros(N,p);
+epsnu = zeros(N,1);
 xhat(1,:) = xhat0.';
 P(:,:,1) = P0;
 maxsigdig = -fix(log10(eps));
 sigdig = maxsigdig;
+xbar = zeros(N,n);
 
 % Check to see whether we have a stationary or non-stationary system. A
 % non-stationary system may be prescribed by an array of matrices or a
@@ -88,6 +93,9 @@ if ~isa(Gam,'function_handle')
 end
 if ~isa(H,'function_handle')
     if size(H,3) > 1, Hk = @(k) H(:,:,k+1); else, Hk = @(k) H; end
+end
+if ~isa(D,'function_handle')
+    if size(D,3) > 1, Dk = @(k) D(:,:,k+1); else, Dk = @(k) D; end
 end
 if ~isa(Q,'function_handle')
     if size(Q,3) > 1, Qk = @(k) Q(:,:,k+1); else, Qk = @(k) Q; end
@@ -112,16 +120,19 @@ for k = 0:N-1
         uk = u(kp1,:).';
         xbarkp1 = Fk(k)*xhatk + Gk(k)*uk;
     end
+    xbar(kp1,:) = xbarkp1.';
     Pk = P(:,:,kp1);
     Pbarkp1 = Fk(k)*Pk*Fk(k)' + Gamk(k)*Qk(k)*Gamk(k)';
 
     % Perform the measurement update of the state estimate and the
     % covariance.
     zkp1 = z(kp1,:).';
-    nu(kp1+1,:) = (zkp1 - Hk(kp1)*xbarkp1).';
+    ukp1 = u(kp1+1,:).';
+    ykp1 = Hk(kp1)*xbarkp1 + Dk(kp1)*ukp1;
+    nu(kp1,:) = (zkp1 - ykp1).';
     Skp1 = Hk(k+1)*Pbarkp1*Hk(k+1)' + Rk(k+1);
     Wkp1 = (Pbarkp1*Hk(k+1)')/Skp1;
-    xhat(kp1+1,:) = (xbarkp1 + Wkp1*nu(kp1+1,:).').';
+    xhat(kp1+1,:) = (xbarkp1 + Wkp1*nu(kp1,:).').';
     P(:,:,kp1+1) = Pbarkp1 - Wkp1*Skp1*Wkp1';
 
     % Check the condition number of Skp1 and infer the approximate accuracy
@@ -132,7 +143,7 @@ for k = 0:N-1
     end
 
     % Compute the innovation statistic, epsilon_nu(k).
-    epsnu(kp1+1) = nu(kp1+1,:)*(Skp1\nu(kp1+1,:).');
+    epsnu(kp1) = nu(kp1,:)*(Skp1\nu(kp1,:).');
 
 end
 
