@@ -87,6 +87,8 @@ for k = 0:N-2
         if DT
             fk(kp1,:) = feval(nonlindyn,k,xk,uk,[],0,params).';
         else
+            tk = t(kp1);
+            tkp1 = t(kp1+1);
             fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,nonlindyn,0,params);
         end
     end

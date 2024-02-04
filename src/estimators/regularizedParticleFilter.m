@@ -95,6 +95,11 @@ else
     Qk = Q;
 end
 
+% Default resampling
+if isempty(q)
+    q = @resampleDiracDelta;
+end
+
 % number of runge-kutta integration steps
 if isempty(nRK)
     nRK = 10;

@@ -125,7 +125,7 @@ end
 for k = 0:N-1
 
     % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
-    disp(['k = ' num2str(k)])
+    % disp(['k = ' num2str(k)])
     kp1 = k+1;
 
     % Perform the dynamic propagation of the state estimate and the
