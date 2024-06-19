@@ -1,4 +1,4 @@
-% close all
+close all
 clear
 clc
 addpath(genpath('../'))
@@ -7,15 +7,20 @@ load ContinuousTimeNonlinearSystem.mat t x z Sigma R params tSim xSim
 % Process noise PSD
 Q = Sigma*Sigma';
 
-% Create the EKF
-EKFCD = extendedKalmanFilterCD(@driftModel,@diffusionModel,@measurementModel,Q,R);
+% UKF tuning parameters
+alpha = 0.1;
+beta = 2;
+kappa = 0;
+
+% Create the UKF
+UKFCD = unscentedKalmanFilterCD(@driftModel,@diffusionModel,@measurementModel,Q,R,alpha,beta,kappa,3);
 
 % Initial Condition
 xhat0 = [0;0;0];
 P0 = 10*eye(3);
 
 % Run the filter on the data
-[xhat,P,nu,epsnu,sigdig] = EKFCD.simulate(t,z,[],xhat0,P0,params);
+[xhat,P,nu,epsnu] = UKFCD.simulate(t,z,[],xhat0,P0,params);
 
 % Plot the state estimates
 figure

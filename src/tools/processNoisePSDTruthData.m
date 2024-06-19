@@ -70,13 +70,13 @@ dnu = nu - mean(nu,1);
 % the default frequency range returned by cpsd. First, compute the diagonal
 % elements and initialize Q.
 dt = t(2)-t(1);
-pxx = pwelch(dnu,1/dt);
+pxx = pwelch(dnu,[],[],[],1/dt);
 Q = diag(max(pxx));
 
 % Loop through and compute the off-diagional elements of Q.
 for ii = 1:nx
     for jj = (ii+1):nx
-        pxy = cpsd(dnu(:,ii),dnu(:,jj),1/dt);
+        pxy = cpsd(dnu(:,ii),dnu(:,jj),[],[],[],1/dt);
         pxymax = max(real(pxy));
         Q(ii,jj) = pxymax;
         Q(jj,ii) = pxymax;

@@ -1,4 +1,6 @@
 addpath('../Models')
+addpath('../../src/dynamics')
+
 
 %% Discrete-Time Linear Stationary System
 close all
@@ -122,13 +124,13 @@ ufun = @(tau) interp1(t,u,tau,'previous');
 
 % Use 10x the sampling rate to approximate continuous-time white noise
 dtv = dt/10;
-tv = (0:dtv:T-dtv).';
-Nv = length(tv);
+tEM = (0:dtv:T-dtv).';
+Nv = length(tEM);
 vtrue = chol(Q)*randn(Nv,nv);
-vfun = @(t) interp1(tv,vtrue,t,'previous');
-vsampled = vfun(t);
+wtilfun = @(t) interp1(tEM,vtrue,t,'previous');
+vsampled = wtilfun(t);
 
-odefun = @(t,x) A*x + B*ufun(t) + Del*vfun(t);
+odefun = @(t,x) A*x + B*ufun(t) + Del*wtilfun(t);
 [t,x] = ode45(odefun,t,x0);
 
 for k = 1:N
@@ -155,60 +157,7 @@ plot(t(2:end),w)
 
 figure
 hold on
-plot(tv,vtrue)
+plot(tEM,vtrue)
 plot(t,vsampled)
 hold off
 
-%% Continuous-Time Nonlinear System
-close all
-clear
-clc
-
-T = 10;
-dt = 0.1;
-nx = 3;
-nv = 1;
-nz = 2;
-
-Q = 1;
-R = diag([0.1,0.05]);
-
-params.alpha = 8/3;
-params.beta = 10;
-params.gamma = 1;
-params.sigma = 30;
-
-x0 = [10; 10; -10];
-
-t = (0:dt:T).';
-N = length(t)-1;
-w = (chol(R)*randn(nz,N)).';
-
-% Use 10x the sampling rate to approximate continuous-time white noise
-dtv = dt/10;
-tv = (0:dtv:T-dtv).';
-Nv = length(tv);
-vtrue = chol(Q)*randn(Nv,nv);
-vfun = @(t) interp1(tv,vtrue,t,'previous');
-vsampled = vfun(t);
-
-odefun = @(t,x) nonlindyn_CT(t,x,[],vfun(t),0,params);
-[t,x] = ode45(odefun,t,x0);
-
-y = zeros(N,nz);
-for k = 1:N
-    y(k,:) = measmodel_CT(t(k),x(k+1,:).',[],0,params).';
-end
-z = y + w;
-
-vars = {'t','params','Q','R','x','y','z','tv','vtrue','vsampled','w'};
-save('ContinuousTimeNonlinearSystem.mat',vars{:})
-
-figure
-hold on
-plot(t(2:end),y)
-plot(t(2:end),z)
-hold off
-
-figure
-plot(t,x)

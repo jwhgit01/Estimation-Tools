@@ -1,178 +1,96 @@
-function [xhat,phi1hist,phi2hist] = passivityBasedObserver(t,y,u,f,xhat0,epsilon,L1,L2,phi1,phi2,nRK,params)
-%passivityBasedObserver 
-%
-% Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
-%
-% This function performs passivity-based state observation on the system
-%
-%                       dx1/dt = f1(x1,x2,u)                        (1a)
-%                       dx2/dt = f2(x1,x2,u)                        (1b)
-%                            y = x1                                 (2)
-% 
-% as presented in
-%
-%       H. Shim, J.H. Seo, A.R. Teel, Nonlinear observer design via
-%       passivation of error dynamics, Automatica, Volume 39, Issue 5,
-%       2003, Pages 885-892
-%       https://doi.org/10.1016/S0005-1098(03)00023-2
-%
-% The observer uses the function "modelPBO.m", which implmenents the
-% state observer
-%
-%       dx1hat/dt = f1(x1hat,x2hat,u)-L1*k(xhat,y,u)(x1hat-y)       (3a)
-%       dx2hat/dt = f2(x1hat,x2hat,u)-L2(y)*k(xhat,y,u)(x1hat-y)    (3b)
-%
-% where x = [x1; x2], L = [L1; L2(y)], and k has the form
-%
-%   k(xhat,y,u) = epsilon ...
-%                 + phi1(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u) ...
-%                 + phi2^2(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u)     (4)
-%
-% The gains given as function handles must have the following form:
-%
-%       function   L2 = <function name>(y)                          (5)
-%       function phi1 = <function name>(x1tilde,x1,eta2,u)          (6a)
-%       function phi2 = <function name>(x1tilde,x1,eta2,u)          (6b)
-%
-% where x1tilde = x1hat - x1 is denoted "e1" in Shim 2003. The nonlinear
-% dynamics model, f(x,u), is also passed to this function through the
-% params struct as a function handle.
-%
-% Inputs:
-%
-%   t       The N+1 x 1 sample time vector. The first element of t 
-%           corresponds to the initial condition occuring at the same time
-%           as the first measurement sample.
-%
-%   y       The N x ny time history of measurements. The first measurement
-%           occurs at t=0.
-%
-%   u       The N x nu time history of system inputs. The first input
-%           occurs at t=0. If not applicable
-%           set to an empty array, [].
-% 
-%   f       The function handle that computes the continuous-time dynamics
-%           of the system. The first line of f must be in the form
-%               [f,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
-%
-%   xhat0   The nx x 1 initial state estimate occuring at t=0;.
-%
-%   epsilon A positive scalar added to the injection gain.
-%
-%   L1      The constant nx1 x nx1 gain matrix used in Eq. (3a).
-%
-%   L2      The nx2 x nx1 gain matrix used in Eq. (3b). It may be given as
-%           a constant matrix or a function handle that is a function of y.
-%
-%   phi1    The handle of the function the computes the bounding function
-%           phi1(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u). It should have the
-%           form given by Eq. (6a).
-%
-%   phi2    The handle of the function the computes the bounding function
-%           phi2(x1hat-y,y,x2hat-(L2/L1)*(x1hat-y),u). It should have the
-%           form given by Eq. (6b).
-%
-%   nRK     The number of intermediate Runge-Kutta integrations steps used
-%           in the discretization of the nonlinear dynamics. May be given
-%           as an empty array to use the default number.
-%
-%   params  A struct of constants that get passed to the dynamics model and
-%           measurement model functions.
-%  
-% Outputs:
-%
-%   xhat        The (N+1) x nx array that contains the time history of the
-%               state vector estimates. The N+1 element occurs one time
-%               step after the last measurement/input at t(N+1).
-%
-%   phi1hist    The N x 1 array that contains the time history of the
-%               positive bounding function phi1. The first element of
-%               phi1hist is the gain used from t=0 to t=dt.
-%
-%   phi2hist    The N x 1 array that contains the time history of the
-%               positive bounding function phi2. The first element of
-%               phi2hist is the gain used from t=0 to t=dt.
-%
+classdef (Abstract) passivityBasedObserver
+%passivityBasedObserver
 
-% number of runge-kutta integration steps
-if isempty(nRK)
-    nRK = 10;
-end
+properties
 
-% Get the problem dimensions and initialize the output arrays.
-N = size(y,1);
-nx = size(xhat0,1);
-ny = size(y,2);
-xhat = zeros(N,nx);
-xhat(1,:) = xhat0.';
-phi1hist = zeros(N,1);
-phi2hist = zeros(N,1);
+    % The invertible injection gain matrix for the measurable part of the
+    % state vector.
+    L1
 
-% if no inputs, set to zero
-if isempty(u)
-    u = zeros(N,1);
-end
+    % The positive scalar that lower bounds the convergence rate of the
+    % measurable state estimate error dynamics.
+    epsilon(1,1) double {mustBePositive} = 1
 
-% Check if L2 is a function.
-if isa(L2,'function_handle')
-    L2fun = true;
-else
-    L2fun = false;
-end
+    % Whether or not the gain functions for the observer are gain-scheduled
+    % by the current time, unmeasurable state estimate, and inputs. The
+    % methods L2, Psi, and Lambda should make use of this property.
+    gainSchedule logical = false
 
-% Store the necessary gains in the params struct for use in modelPBO.m
-params.epsilon = epsilon;
-params.L1 = L1;
-params.L2 = L2;
-params.phi1 = phi1;
-params.phi2 = phi2;
-params.nonlindyn = f;
+    % The char array, string, or function handle that specifies the
+    % function that computes the system dynamics. Note the Jacobians of the
+    % dynamics are not required. See templates/nonlinearDynamics_temp.m.
+    nonlinearDynamics
 
-% This loop integreates the continuous-time observer from one measurement
-% to the next.
-for k = 1:N-1
-  
-    % Obtain the current state estimate, inputs, and measurements
-    disp(['k = ' num2str(k)])
-    xhatk = xhat(k,:).';
-    disp(xhatk')
-    yk = y(k,:).';
-    uk = u(k,:).';
-    tk = t(k,1);
-    tkp1 = t(k+1,1);
+    % An array or stuct of constants that are used in nonlinearDynamics as
+    % well as L2, Psi, and Lambda.
+    params
 
-    % Compute the gains phi1 and phi2 for the current time step and store.
-    % Add x2hat to the params for the ability to gain schedule.
-    x1hatk = xhatk(1:ny,1);
-    x2hatk = xhatk(ny+1:nx,1);
-    %
-%     figure(1)
-%     plot(tk,x1hatk(1:3),'or')
-%     plot(tk,x1hatk(4:6),'ob')
-%     plot(tk,x1hatk(7:9),'og')
-%     plot(tk,x1hatk(10:12),'oc')
-%     figure(2)
-%     plot(tk,x2hatk(1:3),'or')
-%     plot(tk,x2hatk(4:6),'ob')
-    %
-    params.x2hat = x2hatk;
-    if L2fun
-        L2k = L2(yk,uk,params);
-    else
-        L2k = L2;
-    end
-    x1tildek = x1hatk - yk;
-    eta2k = x2hatk - (L2k/L1)*x1tildek;
-    phi1k = phi1(x1tildek,yk,eta2k,uk,params);
-    phi2k = phi2(x1tildek,yk,eta2k,uk,params);
-    phi1hist(k,1) = phi1k;
-    phi2hist(k,1) = phi2k;
-    disp(['phi1 = ' num2str(phi1k) ', phi2 = ' num2str(phi2k)])
+end % public properties
 
-    % Integrate the observer to the next meaurement and store the result.
-    xhatkp1 = c2dNonlinear(xhatk,uk,yk,tk,tkp1,nRK,@modelPBO,0,params);
-    xhat(k+1,:) = xhatkp1.';
+properties (Abstract,Constant)
 
-end
+    % The indices of the measureable states in nonlinearDynamics
+    yIdx
 
-end
+    % The indices of the unmeasureable states in nonlinearDynamics
+    x2Idx
+
+end % abstract constant properties
+
+methods (Abstract)
+
+    % The injection gain matrix for the unmeasured states. If L2 is
+    % not gain-scheduled, the arguments t, x2hat, & u should not be used.
+    L2t = L2(obj,y,t,x2hat,u)
+
+    % The matrix- or scalar-valued nonlinear growth bounding function for
+    % the measurable state error. If Psi is not gain-scheduled, the
+    % arguments t, x2hat, & u should not be used.
+    Psit = Psi(obj,x1tilde,y,eta2,t,x2hat,u)
+
+    % The matrix- or scalar-valued nonlinear growth bounding function for
+    % the unmeasurable state error. If Lambda is not gain-scheduled, the
+    % arguments t, x2hat, & u should not be used.
+    Lambdat = Lambda(obj,x1tilde,y,eta2,t,x2hat,u)
+
+end % abstract methods
+
+methods
+
+    function dxhatdt = observerDynamics(obj,t,xhat,y,u)
+        %observerDynamics The dynamics of the passivity-based observer
+        
+        % Dimensions
+        nx = size(xhat,1);
+        ny = size(y,1);
+
+        % Parse the state vector into its measured and un-measured parts
+        x1hat = xhat(obj.yIdx,1);
+        x2hat = xhat(obj.x2Idx,1);
+        
+        % Evaluate the gain function L2 at the current measurment
+        L2t = obj.L2(y,t,x2hat,u);
+        
+        % Evaluate the system dynamics at the state current estimate
+        fhat = feval(obj.nonlinearDynamics,t,xhat,u,[],false,obj.params);
+        f1hat = fhat(obj.yIdx,1);
+        f2hat = fhat(obj.x2Idx,1);
+        
+        % Evaluate the injection gain function, K.
+        x1tilde = x1hat - y;
+        eta2 = x2hat - (L2t/obj.L1)*x1tilde;
+        Psit = obj.Psi(x1tilde,eta2,y,t,x2hat,u);
+        Lambdat = obj.Lambda(x1tilde,eta2,y,t,x2hat,u);
+        K = obj.epsilon*eye(ny) + Psit + Lambdat'*Lambdat;
+        
+        % Compute the observer dynamics, dxhat/dt.
+        v = -K*x1tilde;
+        dxhatdt = zeros(nx,1);
+        dxhatdt(obj.yIdx,1) = f1hat + obj.L1*v;
+        dxhatdt(obj.x2Idx,1) = f2hat + L2t*v;
+
+    end % observerDynamics
+
+end % concrete methods
+
+end % classdef

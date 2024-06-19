@@ -94,7 +94,12 @@ function [fk,Fk,Gamk] = c2dNonlinear(xk,uk,vk,tk,tkp1,nRK,fc,dervflag,params)
 x = xk;
 if dervflag == 1
     nx = size(xk,1);
-    nv = size(vk,1);
+    if isempty(vk)
+        [~,~,Dk] = feval(fc,tk,xk,uk,[],1,params);
+        nv = size(Dk,2);
+    else
+        nv = size(vk,1);
+    end
     F = eye(nx);
     Gam = zeros(nx,nv);
 end

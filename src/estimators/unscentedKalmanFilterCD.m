@@ -1,158 +1,380 @@
-function [xhat,P] = unscentedKalmanFilterCD(t,z,u,f,h,Q,R,xhat0,P0,nRK,alpha,beta,kappa,params)
-%unscentedKalmanFilterCD 
+classdef unscentedKalmanFilterCD < stateEstimatorCD
+%unscentedKalmanFilterCD
 %
-% Copyright (c) 2022 Jeremy W. Hopwood. All rights reserved.
+% Copyright (c) 2024 Jeremy W. Hopwood. All rights reserved.
 %
-% This function performs continuous-discrete unscented Kalman filtering for
-% a given time history of measurments and the nonlinear system,
+% This class defines the continuous-discrete (hybrid) unscented Kalman
+% filter for the continuous-time nonlinear system
 %
-%                   dx/dt = f(t,x,u,vtil)                       (1)
-%                   z(t) = h(t,x) + wtil(t)                     (2)               
+%             dx/dt = f(t,x(t),u(t)) + D(t,x(t),u(t))*wtil(t)           (1)
 %
-% where vtil(k) is continuous-time, zero-mean Gaussian, white noise with
-% covariance Q(t) and wtil(t) is continuous-time, zero-mean Gaussian, white
-% noise with covariance R(t). This filter is implemented and referenced by
-% equation number using https://doi.org/10.1109/TAC.2007.904453
+% where x is the nx x 1 state vector, u is the nu x 1 input vector, f is
+% the drift vector field, D is the diffusion matrix field, and wtil is
+% zero-mean, continuous-time, Gaussian, white noise with power spectral
+% density Q. It is assumed there are discrete measurements satisfying
 %
-% Inputs:
+%                    z(k) = h(t(k),x(t(k))) + v(k)                      (2)
 %
-%   t       The (N+1) x 1 sample time vector. The first sample occurs after
-%           the initial condition at t(1) = t0.
+% where each v(k) is independently sampled from a Gaussian distribution
+% with zero mean and covariance R(k). This filter is implemented and
+% referenced by equation number using doi.org/10.1109/TAC.2007.904453
 %
-%   z       The N x nz time history of measurements.
+% Properties:
+%   Drift
+%   Diffusion
+%   MeasurementModel
+%   ProcessNoisePSD
+%   MeasurementNoiseCovariance
+%   nRK
+%   alpha
+%   beta
+%   kappa
 %
-%   u       The N x nu time history of system inputs (optional). The first
-%           input occurs at t = t0. If not applicable set to an empty
-%           array, [].
-% 
-%   f       The function handle that computes the continuous-time dynamics.
-%           The first line of f must be in the form
-%               [f,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
-% 
-%   h       The function handle that computes the modeled output of the
-%           system. The first line of h must be in the form
-%               [h,H] = measmodel(t,x,u,dervflag,params)
-%   
-%   Q       The continuous-time process noise power spectral density. It
-%           may be given as a constant matrix, an ()x()xN 3-dimensional
-%           array, or a function handle that is a function of time.
-%
-%   R       The discrete-time measurement noise covariance. It may be given
-%           as a constant matrix, an ()x()xN 3-dimensional array, or a
-%           function handle that is a function of the sample number, k.
-%
-%   xhat0   The nx x 1 initial state estimate.
-%
-%   P0      The nx x nx symmetric positive definite initial state
-%           estimation error covariance matrix.
-%
-%   nRK     The number of intermediate Runge-Kutta integrations steps used
-%           in the integration of the nonlinear dynamics between
-%           measurements. May be given as an empty array to use the default
-%           number.
-%
-%   alpha   A scaling parameter determines the spread of the sigma points
-%           about xbar. Typically, one chooses 10e-4 <= alpha <= 1.
-%
-%   beta    A tuning parameter that incorporates information about the
-%           prior distribution of x. The value of beta = 2 is optimal for a
-%           Gaussian distribution because it optimizes some type of
-%           matching of higher order terms (see Wan and van der Merwe).
-%
-%   kappa   A secondary scaling parameter. A good value is typically 3-nx.
-%
-%   params  A struct of constants that get passed to the dynamics model and
-%           measurement model functions.
-%  
-% Outputs:
-%
-%   xhat    The (N+1) x nx array that contains the time history of state
-%           vector estimates.
-%
-%   P       The nx x nx x (N+1) array that contains the time history of the
-%           covariance of the estimation error.
+% Methods
+%   unscentedKalmanFilterCD
+%   simulate
+%   predict
+%   correct
+%   Q
+%   R
 %
 
-% Check to see whether we have non-stationary noise, which may
-% be prescribed by an array of matrices or a function handle that is a
-% fucntion of the timestep/time.
-if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k+1); else, Rk = @(k) R; end
-else
-    Rk = R;
-end
-if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qc = @(tk) Q(:,:,find(t>=tk,1)); else, Qc = @(t) Q; end
-else
-    Qc = Q;
-end
+properties
+    % The function handle that defines the drift vector field of (1). It
+    % must be in the form [f,A] = drift(t,x,u,params), where f is the
+    % value of the drift fector field at (t,x,u), A is the Jacobian of f at
+    % (t,x,u), t is the current time, x is the state vector, u is the input
+    % vector, and params is a struct of parameters.
+    Drift
 
-% Default number of runge-kutta integration steps
-if isempty(nRK)
-    nRK = 10;
-end
+    % The function handle that defines the diffusion matrix field of (1). 
+    % It must be in the form D = diffusion(t,x,u,params), where D is the
+    % value of the diffusion matrix field at (t,x,u), t is the current
+    % time, x is the state vector, u is the input vector, and params is a
+    % struct of parameters.
+    Diffusion
 
-% Get the problem dimensions and initialize the output arrays.
-N = size(z,1);
-nx = size(xhat0,1);
-nz = size(z,2);
-ns = 2*nx + 1;
-xhat = zeros(N+1,nx);
-P = zeros(nx,nx,N+1);
-xhat(1,:) = xhat0.';
-P(:,:,1) = P0;
+    % The function handle that defines the measurment model (2). It must be
+    % in the form [y,H] = meas(k,x,u,params), where y is the modeleed
+    % output of the system H is its Jacobian. Here, k is the sample number,
+    % x is the state vector, u is the input vector, and params is a struct
+    % of parameters.
+    MeasurementModel
+end % public properties
 
-% if no inputs, set to zero
-if isempty(u)
-    u = zeros(N,1);
-end
+properties (SetAccess=immutable)
+    % A scaling parameter determines the spread of the sigma points about
+    % xbar. Typically, one chooses 10e-4 <= alpha <= 1.
+    alpha(1,1) double {mustBePositive} = 0.1
 
-% Compute the weights associated with the sigma points using
-% Eqs. (10) and (11).
-lambda = alpha^2*(nx+kappa) - nx;
-c = nx + lambda;
-sqrtc = sqrt(c);
-Wm = zeros(2*nx+1,1);
-Wc = zeros(2*nx+1,1);
-Wm(1,1) = lambda/c;
-Wc(1,1) = lambda/c + (1-alpha^2+beta);
-Wm(2:ns,1) = repmat(1/(2*c),2*nx,1);
-Wc(2:ns,1) = repmat(1/(2*c),2*nx,1);
+    % A tuning parameter that incorporates information about the prior
+    % distribution of x. The value of beta = 2 is optimal for a Gaussian
+    % distribution because it optimizes some type of matching of higher
+    % order terms (see Wan and van der Merwe).
+    beta(1,1) double {mustBePositive} = 2
 
-% This loop performs one model propagation step and one measurement
-% update step per iteration.
-for k = 0:N-1
+    % A secondary scaling parameter. A good value is typically 3-nx.
+    kappa(1,1) double = 0
+end % visible immutable properties
 
-    % Recall, arrays are 1-indexed, but the initial condition occurs before
-    % the first sample.
-    kp1 = k+1;
-    fprintf('%i\n',k)
-    
-    % Propogate the sigma points through the dynamics.
-    tk = t(kp1);
-    tkp1 = t(kp1+1);
-    xhatk = xhat(kp1,:).';
-    Pk = P(:,:,kp1);
-    uk = u(kp1,:).';
-    [xbarkp1,Pbarkp1,Xbarkp1,Ybarkp1] = predictUKBF(xhatk,Pk,uk,Qc,tk,...
-                                          tkp1,nRK,f,h,sqrtc,Wm,Wc,params);
+properties (SetAccess=immutable,Hidden)
+    c(1,1) double
+    Wm(:,1) double
+    Wc(:,1) double
+end % hidden immutable properties
 
-    % Perform the measurement update of the state estimate and the
-    % covariance.
-    ybarkp1 = Ybarkp1*Wm;
-    Skp1 = zeros(nz,nz);
-    Ckp1 = zeros(nx,nz);
-    for ii = 1:ns
-        Skp1 = Skp1 + Wc(ii,1)*(Ybarkp1(:,ii)-ybarkp1)*(Ybarkp1(:,ii)-ybarkp1)';
-        Ckp1 = Ckp1 + Wc(ii,1)*(Xbarkp1(:,ii)-xbarkp1)*(Ybarkp1(:,ii)-ybarkp1)';
+properties (Access=private)
+    nx(1,1) double % number of states
+    ns(1,1) double % number of sigma points
+end % private properties
+
+methods
+
+    function obj = unscentedKalmanFilterCD(f,D,h,Q,R,alpha,beta,kappa,nx)
+        %unscentedKalmanFilterCD Construct an instance of this class
+
+        % TODO: verify
+        warning("Something may be wrong in this class. TODO: verify.")
+
+        % Store properties
+        obj.Drift = f;
+        obj.Diffusion = D;
+        obj.MeasurementModel = h;
+        obj.ProcessNoisePSD = Q;
+        obj.MeasurementNoiseCovariance = R;
+        obj.alpha = alpha;
+        obj.beta = beta;
+        obj.kappa = kappa;
+        obj.nx = nx;
+        obj.ns = 2*nx + 1;
+
+        % Compute and store weights
+        lambda = obj.alpha^2*(nx+obj.kappa) - nx;
+        obj.c = nx + lambda;
+        obj.Wm = zeros(2*nx+1,1);
+        obj.Wc = zeros(2*nx+1,1);
+        obj.Wm(1,1) = lambda/obj.c;
+        obj.Wc(1,1) = lambda/obj.c + (1-obj.alpha^2+obj.beta);
+        obj.Wm(2:obj.ns,1) = repmat(1/(2*obj.c),2*nx,1);
+        obj.Wc(2:obj.ns,1) = repmat(1/(2*obj.c),2*nx,1);
+
+    end % unscentedKalmanFilterCD
+
+    function [xhat,P,nu,epsnu] = simulate(obj,t,z,u,xhat0,P0,params)
+        %simulate This method performs continuous-discrete unscented Kalman
+        % filtering for a given time history of measurments.
+        %
+        % Inputs:
+        %
+        %   t       The N x 1 sample time vector. The first element of t
+        %           corresponds to the time of the initial condition.
+        %
+        %   z       The N x nz time history of measurements. The first
+        %           element of z corresponds to sample k=0, which occurs at
+        %           time t=0, and thus is not used.
+        %
+        %   u       The N x nu time history of system inputs (optional). If
+        %           not applicable set to an empty array, []. The first
+        %           element of u corresponds to the input at the initial
+        %           condition.
+        %
+        %   xhat0   The nx x 1 initial state estimate.
+        %
+        %   P0      The nx x nx symmetric positive definite initial state
+        %           estimation error covariance matrix.
+        %
+        %   params  An array or struct of constants that get passed to the
+        %           dynamics model and measurement model functions.
+        %  
+        % Outputs:
+        %
+        %   xhat    The N x nx array that contains the time history of the
+        %           state vector estimates.
+        %
+        %   P       The nx x nx x N array that contains the time history of
+        %           the estimation error covariance.
+        %
+        %   nu      The N x nz vector of innovations.
+        %
+
+        % Get the problem dimensions and initialize the output arrays.
+        N = size(z,1);
+        nz = size(z,2);
+        xhat = zeros(N,obj.nx);
+        P = zeros(obj.nx,obj.nx,N);
+        nu = zeros(N,nz);
+        epsnu = zeros(N,1);
+        xhat(1,:) = xhat0.';
+        P(:,:,1) = P0;
+        
+        % if no inputs, set to a tall empty array
+        if isempty(u)
+            u = zeros(N,0);
+        end
+        
+        % This loop performs one model propagation step and one measurement
+        % update step per iteration.
+        for k = 0:N-2
+
+            % Display the time periodically
+            obj.dispIter(t(k+2));
+
+            % Recall, arrays are 1-indexed, but the initial condition
+            % occurs at k=0.
+            ik = k + 1;
+        
+            % Perform the dynamic propagation of the state estimate.
+            tk = t(ik);
+            tkp1 = t(ik+1);
+            xhatk = xhat(ik,:).';
+            uk = u(ik,:).';
+            Pk = P(:,:,ik);
+            [xbarkp1,Pbarkp1] = obj.predict(tk,tkp1,xhatk,uk,Pk,params);
+        
+            % Perform the measurement update of the state estimate.
+            ukp1 = u(ik+1,:).';
+            zkp1 = z(ik+1,:).';
+            [xhatkp1,Pkp1,nukp1,Skp1] = obj.correct(k+1,zkp1,tkp1,xbarkp1,ukp1,Pbarkp1,params);
+            
+            % Store the results
+            xhat(ik+1,:) = xhatkp1.';
+            P(:,:,ik+1) = Pkp1;
+            nu(ik+1,:) = nukp1.';
+            epsnu(ik+1,:) = nukp1'*(Skp1\nukp1);
+
+        end
+
+    end % simulate
+
+    function [xbarkp1,Pbarkp1] = predict(obj,tk,tkp1,xhatk,uk,Pk,params)
+        %predict State propogation step of the UKF
+        
+        % Prepare for the Runge-Kutta numerical integration by setting up 
+        % the initial conditions and the time step.
+        x = xhatk;
+        P = Pk;
+        t = tk;
+        delt = (tkp1-tk)/obj.nRK;
+        
+        % This loop does one 4th-order Runge-Kutta numerical integration
+        % step per iteration.  Integrate the state.  If partial derivatives
+        % are to be calculated, then the partial derivative matrices
+        % simultaneously with the state.
+        for jj = 1:obj.nRK
+        
+            % Step a
+            [dxbardt,dPdt] = obj.sigmaPointDynamicsCT(t,x,P,uk,params);
+            dxbara = dxbardt*delt;
+            dPa = dPdt*delt;
+        
+            % Step b
+            [dxbardt,dPdt] = obj.sigmaPointDynamicsCT(t+0.5*delt,x+0.5*dxbara,P+0.5*dPa,uk,params);
+            dxbarb = dxbardt*delt;
+            dPb = dPdt*delt;
+        
+            % Step c
+            [dxbardt,dPdt] = obj.sigmaPointDynamicsCT(t+0.5*delt,x+0.5*dxbarb,P+0.5*dPb,uk,params);
+            dxbarc = dxbardt*delt;
+            dPc = dPdt*delt;
+        
+            % Step d
+            [dxbardt,dPdt] = obj.sigmaPointDynamicsCT(t+delt,x+dxbarc,P+dPc,uk,params);
+            dxbard = dxbardt*delt;
+            dPd = dPdt*delt;
+        
+            % 4th order Runge-Kutta integration result
+            x = x + (dxbara + 2*(dxbarb + dxbarc) + dxbard)/6;
+            P = P + (dPa + 2*(dPb + dPc) + dPd)/6;
+            t = t + delt;
+        
+        end
+        
+        % Assign the results to the appropriate outputs.
+        xbarkp1 = x;
+        Pbarkp1 = P;
+
+    end % predict
+
+    function [xhatkp1,Pkp1,nukp1,Skp1] = correct(obj,kp1,zkp1,tkp1,xbarkp1,ukp1,Pbarkp1,params)
+        %predict Measurement correction step of the EKF
+
+        % Compute lower triangular Cholesky factor of Pbar(k+1) satisfying
+        % Eq. (15).
+        [Sbarkp1tp,flag] = chol(Pbarkp1);
+        Sbarkp1 = Sbarkp1tp';
+        if flag > 0
+            warning('Singular Sbar(k+1) at sample k=%i',kp1);
+            Sbarkp1 = chol(Pbarkp1 + 1e-3*eye(size(Pbarkp1)))';
+        end
+        
+        % Construct matrices of sigma point outputs.
+        [Xbarkp1,~,Ybarkp1] = obj.sigmaPointsCT(tkp1,xbarkp1,ukp1,Sbarkp1,params);
+
+        % Mean output of the system
+        ybarkp1 = Ybarkp1*obj.Wm;
+
+        % Compute Kalman gain based on sigma point innovation covariances
+        nz = size(zkp1,1);
+        Skp1 = zeros(nz,nz);
+        Ckp1 = zeros(obj.nx,nz);
+        for ii = 1:obj.ns
+            Skp1 = Skp1 + obj.Wc(ii,1)*(Ybarkp1(:,ii)-ybarkp1)*(Ybarkp1(:,ii)-ybarkp1)';
+            Ckp1 = Ckp1 + obj.Wc(ii,1)*(Xbarkp1(:,ii)-xbarkp1)*(Ybarkp1(:,ii)-ybarkp1)';
+        end
+        Skp1 = Skp1 + obj.R(kp1);
+        Kkp1 = Ckp1/Skp1;
+
+        % State estimate
+        nukp1 = zkp1 - ybarkp1;
+        xhatkp1 = Xbarkp1(:,1) + Kkp1*nukp1;
+        Pkp1 = Pbarkp1 - Kkp1*Skp1*Kkp1';
+
+    end % correct
+
+end % public methods
+
+methods (Access=private)
+
+    function [dxbardt,dPdt] = sigmaPointDynamicsCT(obj,t,xhat,P,u,params)
+        %sigmaPointDynamicsCT This method computes the dynamics of the
+        % continuous-time, unscented Kalman filter sigma points.
+        
+        % Compute the lower triangular Cholesky factor of P(t) satisfying
+        % Eq. (15).
+        [Sxtp,flag] = chol(P);
+        Sx = Sxtp';
+        if flag > 0
+            warning('Singular S(t) at time t=%0.2f',t);
+            Sx = chol(P + 1e-3*eye(size(P)))';
+        end
+        
+        % Construct matrices of sigma points, their dynamics, and outputs.
+        [Xk,fX,hX] = obj.sigmaPointsCT(t,xhat,u,Sx,params);
+        
+        % Get the necessary dimensions.
+        nz = size(hX,1);
+
+        % Efficiently compute necessary covariances using Eqs. (36) & (37).
+        mx = zeros(obj.nx,1);
+        mf = zeros(obj.nx,1);
+        mh = zeros(nz,1);
+        for ii = 1:obj.ns
+            mx = mx + obj.Wm(ii,1)*Xk(:,ii);
+            mf = mf + obj.Wm(ii,1)*fX(:,ii);
+            mh = mh + obj.Wm(ii,1)*hX(:,ii);
+        end
+        XWfXtr = zeros(obj.nx,obj.nx);
+        XWhXtr = zeros(obj.nx,nz);
+        for ii = 1:obj.ns
+            XWfXtr = XWfXtr + obj.Wc(ii,1)*(Xk(:,ii)-mx)*(fX(:,ii)-mf)';
+            XWhXtr = XWhXtr + obj.Wc(ii,1)*(Xk(:,ii)-mx)*(hX(:,ii)-mh)';
+        end
+        
+        % compute the process noise diffusion matrix
+        D = obj.Diffusion(t,xhat,u,params);
+        
+        % Compute the covariance dynamics using Eq. (34)
+        dPdt = XWfXtr + XWfXtr' + D*obj.Q(t)*D';
+        
+        % Compute the dynamics of the mean using Eq. (34)
+        dxbardt = mf;
+
+    end % sigmaPointDynamicsCT
+
+    function [Xk,fX,hX] = sigmaPointsCT(obj,tk,xk,uk,Sx,params)
+        %sigmaPointsCT This method computes matrices of sigma points, their
+        % dynamics, and outputs given the perturbation sqrt(c)*chol(P)'. 
+        
+        % Evaluate the dynamics and output at the given estimate, x.
+        fX0 = obj.Drift(tk,xk,uk,params);
+        hX0 = obj.MeasurementModel(tk,xk,uk,params);
+        
+        % dimensions
+        nz = size(hX0,1);
+
+        % Square root of c
+        sqrtc = sqrt(obj.c);
+        
+        % Construct matrices of sigma points, their dynamics, and outputs.
+        Xk = zeros(obj.nx,obj.ns);
+        Xk(:,1) = xk;
+        fX = zeros(obj.nx,obj.ns);
+        fX(:,1) = fX0;
+        hX = zeros(nz,obj.ns);
+        hX(:,1) = hX0;
+        for ii = 2:(obj.nx+1)
+            Xk(:,ii) = xk + sqrtc*Sx(:,ii-1);
+            fX(:,ii) = obj.Drift(tk,Xk(:,ii),uk,params);
+            hX(:,ii) = obj.MeasurementModel(tk,Xk(:,ii),uk,params);
+        end
+        for ii = (obj.nx+2):obj.ns
+            Xk(:,ii) = xk - sqrtc*Sx(:,ii-1-obj.nx);
+            fX(:,ii) = obj.Drift(tk,Xk(:,ii),uk,params);
+            hX(:,ii) = obj.MeasurementModel(tk,Xk(:,ii),uk,params);
+        end
+        
     end
-    Skp1 = Skp1 + Rk(kp1);
-    Kkp1 = Ckp1/Skp1;
-    zkp1 = z(kp1,:).'; 
-    nukp1 = zkp1 - ybarkp1;
-    xhat(kp1+1,:) = Xbarkp1(:,1) + Kkp1*nukp1;
-    P(:,:,kp1+1) = Pbarkp1 - Kkp1*Skp1*Kkp1';
-    
-end
 
-end
+end % private methods
+
+end % classdef

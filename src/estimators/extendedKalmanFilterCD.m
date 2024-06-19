@@ -1,158 +1,257 @@
-function [xhat,P,nu,epsnu,sigdig] = extendedKalmanFilterCD(t,z,u,fc,h,Q,R,xhat0,P0,nRK,params)
-%extendedKalmanFilterCD 
+classdef extendedKalmanFilterCD < stateEstimatorCD
+%extendedKalmanFilterCD
 %
-% Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
+% Copyright (c) 2024 Jeremy W. Hopwood. All rights reserved.
 %
-% This function performs continuous-discrete (sometimes called hybrid)
-% extended Kalman filtering for a given time history of measurments and the
-% continuosu-time nonlinear system,
+% This class defines the continuous-discrete (hybrid) extended Kalman
+% filter for the continuous-time nonlinear system
 %
-%                           dx/dt = f(t,x,u,vtil)                   (1)
+%             dx/dt = f(t,x(t),u(t)) + D(t,x(t),u(t))*wtil(t)           (1)
 %
-% with discrete measurements
+% where x is the nx x 1 state vector, u is the nu x 1 input vector, f is
+% the drift vector field, D is the diffusion matrix field, and wtil is
+% zero-mean, continuous-time, Gaussian, white noise with power spectral
+% density Q. It is assumed there are discrete measurements satisfying
 %
-%                           z(tk) = h(tk,xk) + w(k)                 (2)
+%                    z(k) = h(t(k),x(t(k))) + v(k)                      (2)
 %
-% where vtil(k) is continuous-time zero-mean Gaussian, white noise with
-% power spectral density Q(t) and w(k) is discrete-time zero-mean Gaussian,
-% white noise with covariance R(k).
+% where each v(k) is independently sampled from a Gaussian distribution
+% with zero mean and covariance R(k).
 %
-% Inputs:
+% Properties:
+%   Drift
+%   Diffusion
+%   MeasurementModel
+%   ProcessNoisePSD
+%   MeasurementNoiseCovariance
+%   nRK
 %
-%   t       The (N+1) x 1 sample time vector. The first element of t 
-%           corresponds to the initial condition occuring before the first
-%           measurement sample at t(k), k=1.
+% Methods
+%   extendedKalmanFilterCD
+%   simulate
+%   predict
+%   correct
+%   Q
+%   R
 %
-%   z       The N x nz time history of measurements.
-%
-%   u       The (N+1) x nu time history of system inputs (optional). If not
-%           applicable set to an empty array, [].
-% 
-%   f       The function handle that computes the continuous-time dynamics
-%           of the system. The first line of f must be in the form
-%               [f,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
-% 
-%   h       The function handle that computes the modeled output of the
-%           system. The first line of h must be in the form
-%               [h,H] = measmodel(t,x,u,dervflag,params)
-%   
-%   Q       The power spectral density of the continuous-time process noise
-%           vtil. It may be specificed a a constant matrix, a ()x()xN
-%           3-dimensional array, or a function handle this is a function of
-%           time, t. If it is a ()x()xN array, then the first element
-%           corresponds to t=0.
-%
-%   R       The discrete-time measurement noise covariance of w. It may be
-%           specificed as a constant matrix, a ()x()xN 3-dimensional array,
-%           or a function handle that is a function of the sample number,k.
-%           Recall, k=0 corresponds to t=0. If it is a ()x()xN array, then
-%           the first element corresponds to k=1.
-%
-%   xhat0   The nx x 1 initial state estimate.
-%
-%   P0      The nx x nx symmetric positive definite initial state
-%           estimation error covariance matrix.
-%
-%   nRK     The number of intermediate Runge-Kutta integrations steps used
-%           in the discretization of the nonlinear dynamics. May be given
-%           as an empty array to use the default number.
-%
-%   params  A struct of constants that get passed to the dynamics model and
-%           measurement model functions.
-%  
-% Outputs:
-%
-%   xhat    The (N+1) x nx array that contains the time history of the
-%           state vector estimates.
-%
-%   P       The nx x nx x (N+1) array that contains the time history of the
-%           estimation error covariance matrices.
-%
-%   nu      The N x nz vector of innovations.
-%
-%   epsnu   The N x 1 vector of the normalized innovation statistic.
-%
-%   sigdig  The approximate number of accurate significant decimal places
-%           in the result. This is computed using the condition number of
-%           the covariance of the innovations, S.
-% 
 
-% Check to see whether we have non-stationary noise, which may
-% be prescribed by an array of matrices or a function handle that is a
-% fucntion of the timestep/time.
-if ~isa(R,'function_handle')
-    if size(R,3) > 1, Rk = @(k) R(:,:,k); else, Rk = @(k) R; end
-else
-    Rk = R;
-end
-if ~isa(Q,'function_handle')
-    if size(Q,3) > 1, Qc = @(tk) Q(:,:,find(t>=tk,1)); else, Qc = @(t) Q; end
-else
-    Qc = Q;
+properties
+    % The function handle that defines the drift vector field of (1). It
+    % must be in the form [f,A] = drift(t,x,u,params), where f is the
+    % value of the drift fector field at (t,x,u), A is the Jacobian of f at
+    % (t,x,u), t is the current time, x is the state vector, u is the input
+    % vector, and params is a struct of parameters.
+    Drift
+
+    % The function handle that defines the diffusion matrix field of (1). 
+    % It must be in the form D = diffusion(t,x,u,params), where D is the
+    % value of the diffusion matrix field at (t,x,u), t is the current
+    % time, x is the state vector, u is the input vector, and params is a
+    % struct of parameters.
+    Diffusion
+
+    % The function handle that defines the measurment model (2). It must be
+    % in the form [y,H] = meas(k,x,u,params), where y is the modeleed
+    % output of the system H is its Jacobian. Here, k is the sample number,
+    % x is the state vector, u is the input vector, and params is a struct
+    % of parameters.
+    MeasurementModel
 end
 
-% number of runge-kutta integration steps
-if isempty(nRK)
-    nRK = 10;
-end
+methods
 
-% Get the problem dimensions and initialize the output arrays.
-N = size(z,1);
-nx = size(xhat0,1);
-nz = size(z,2);
-xhat = zeros(N+1,nx);
-P = zeros(nx,nx,N+1);
-nu = zeros(N,nz);
-epsnu = zeros(N,1);
-xhat(1,:) = xhat0.';
-P(:,:,1) = P0;
-maxsigdig = -fix(log10(eps));
-sigdig = maxsigdig;
+    function obj = extendedKalmanFilterCD(f,D,h,Q,R)
+        %extendedKalmanFilterDT Construct an instance of this class
 
-% if no inputs, set to zero
-if isempty(u)
-    u = zeros(N,1);
-end
+        % Store properties
+        obj.Drift = f;
+        obj.Diffusion = D;
+        obj.MeasurementModel = h;
+        obj.ProcessNoisePSD = Q;
+        obj.MeasurementNoiseCovariance = R;
 
-% This loop performs one model propagation step and one measurement
-% update step per iteration.
-for k = 0:N-1
+    end % extendedKalmanFilterDT
 
-    % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
-    % disp(['k = ' num2str(k)])
-    kp1 = k+1;
-    % fprintf('%i\n',k)
+    function [xhat,P,nu,epsnu,sigdig] = simulate(obj,t,z,u,xhat0,P0,params)
+        %simulate This method performs continuous-discrete extended Kalman
+        % filtering for a given time history of measurments.
+        %
+        % Inputs:
+        %
+        %   t       The N x 1 sample time vector. The first element of t
+        %           corresponds to the time of the initial condition.
+        %
+        %   z       The N x nz time history of measurements. The first
+        %           element of z corresponds to sample k=0, which occurs at
+        %           time t=0, and thus is not used.
+        %
+        %   u       The N x nu time history of system inputs (optional). If
+        %           not applicable set to an empty array, []. The first
+        %           element of u corresponds to the input at the initial
+        %           condition.
+        %
+        %   xhat0   The nx x 1 initial state estimate.
+        %
+        %   P0      The nx x nx symmetric positive definite initial state
+        %           estimation error covariance matrix.
+        %
+        %   params  An array or struct of constants that get passed to the
+        %           dynamics model and measurement model functions.
+        %  
+        % Outputs:
+        %
+        %   xhat    The N x nx array that contains the time history of the
+        %           state vector estimates.
+        %
+        %   P       The nx x nx x N array that contains the time history of
+        %           the estimation error covariance.
+        %
+        %   nu      The N x nz vector of innovations.
+        %
+        %   epsnu   The N x 1 vector of the normalized innovation statistic
+        %
+        %   sigdig  The approximate number of accurate significant decimal
+        %           places in the result. This is computed using the
+        %           condition number of inovation covariance, S.
+        %
 
-    % Perform the dynamic propagation of the state estimate and the
-    % covariance.
-    xhatk = xhat(kp1,:).';
-    uk = u(kp1,:).';
-    Pk = P(:,:,kp1);
-    tk = t(kp1,1);
-    tkp1 = t(kp1+1,1);
-    [xbarkp1,Pbarkp1] = predictEKBF(xhatk,uk,Pk,Qc,tk,tkp1,nRK,fc,params);
+        % Get the problem dimensions and initialize the output arrays.
+        N = size(z,1);
+        nx = size(xhat0,1);
+        nz = size(z,2);
+        xhat = zeros(N,nx);
+        P = zeros(nx,nx,N);
+        nu = zeros(N,nz);
+        epsnu = zeros(N,1);
+        xhat(1,:) = xhat0.';
+        P(:,:,1) = P0;
+        maxsigdig = -fix(log10(eps));
+        sigdig = maxsigdig;
+        
+        % if no inputs, set to a tall empty array
+        if isempty(u)
+            u = zeros(N,0);
+        end
+        
+        % This loop performs one model propagation step and one measurement
+        % update step per iteration.
+        for k = 0:N-2
 
-    % Perform the measurement update of the state estimate and the
-    % covariance.
-    zkp1 = z(kp1,:).';
-    ukp1 = u(kp1,:).';
-    [zbarkp1,Hkp1] = feval(h,tkp1,xbarkp1,ukp1,1,params);
-    nu(kp1,:) = (zkp1-zbarkp1).';
-    Skp1 = Hkp1*Pbarkp1*Hkp1' + Rk(kp1);
-    Wkp1 = Pbarkp1*Hkp1'/Skp1;
-    xhat(kp1+1,:) = (xbarkp1 + Wkp1*nu(kp1,:).').';
-    P(:,:,kp1+1) = (eye(nx)-Wkp1*Hkp1)*Pbarkp1;
+            % Display the time periodically
+            obj.dispIter(t(k+2));
 
-    % Check the condition number of Skp1 and infer the approximate accuracy
-    % of the resulting estimate.
-    sigdigkp1 = maxsigdig-fix(log10(cond(Skp1)));
-    if sigdigkp1 < sigdig
-        sigdig = sigdigkp1;
-    end
+            % Recall, arrays are 1-indexed, but the initial condition
+            % occurs at k=0.
+            ik = k + 1;
+        
+            % Perform the dynamic propagation of the state estimate.
+            tk = t(ik);
+            tkp1 = t(ik+1);
+            xhatk = xhat(ik,:).';
+            uk = u(ik,:).';
+            Pk = P(:,:,ik);
+            [xbarkp1,Pbarkp1] = obj.predict(tk,tkp1,xhatk,uk,Pk,params);
+        
+            % Perform the measurement update of the state estimate.
+            ukp1 = u(ik+1,:).';
+            zkp1 = z(ik+1,:).';
+            [xhatkp1,Pkp1,nukp1,Skp1] = obj.correct(k+1,zkp1,xbarkp1,ukp1,Pbarkp1,params);
+            
+            % Store the results
+            xhat(ik+1,:) = xhatkp1.';
+            P(:,:,ik+1) = Pkp1;
+            nu(ik+1,:) = nukp1.';
+            epsnu(ik+1,:) = nukp1'*(Skp1\nukp1);
+        
+            % Check the condition number of Skp1 and infer the approximate
+            % numerical precision of the resulting estimate.
+            sigdigkp1 = maxsigdig - fix(log10(cond(Skp1)));
+            if sigdigkp1 < sigdig
+                sigdig = sigdigkp1;
+            end
+        
+        end
 
-    % Compute the innovation statistic, epsilon_nu(k).
-    epsnu(kp1) = nu(kp1,:)*(Skp1\nu(kp1,:).');
+    end % simulate
 
-end
+    function [xbarkp1,Pbarkp1] = predict(obj,tk,tkp1,xhatk,uk,Pk,params)
+        %predict State propogation step of the EKF
+        
+        % Prepare for the Runge-Kutta numerical integration by setting up 
+        % the initial conditions and the time step.
+        x = xhatk;
+        P = Pk;
+        t = tk;
+        delt = (tkp1-tk)/obj.nRK;
+        
+        % This loop does one 4th-order Runge-Kutta numerical integration
+        % step per iteration.  Integrate the state.  If partial derivatives
+        % are to be calculated, then the partial derivative matrices
+        % simultaneously with the state.
+        for jj = 1:obj.nRK
+        
+            % Step a
+            [f,A] = obj.Drift(t,x,uk,params);
+            D = obj.Diffusion(t,x,uk,params);
+            Pdot = A*P + P*A' + D*obj.Q(t)*D';
+            dxa = f*delt;
+            dPa = Pdot*delt;
+        
+            % Step b
+            [f,A] = obj.Drift(t+0.5*delt,x+0.5*dxa,uk,params);
+            D = obj.Diffusion(t+0.5*delt,x+0.5*dxa,uk,params);
+            Pdot = A*(P+0.5*dPa) + (P+0.5*dPa)*A' + D*obj.Q(t+0.5*delt)*D';
+            dxb = f*delt;
+            dPb = Pdot*delt;
+        
+            % Step c
+            [f,A] = obj.Drift(t+0.5*delt,x+0.5*dxb,uk,params);
+            D = obj.Diffusion(t+0.5*delt,x+0.5*dxb,uk,params);
+            Pdot = A*(P+0.5*dPb) + (P+0.5*dPb)*A' + D*obj.Q(t+0.5*delt)*D';
+            dxc = f*delt;
+            dPc = Pdot*delt;
+        
+            % Step d
+            [f,A] = obj.Drift(t+delt,x+dxc,uk,params);
+            D = obj.Diffusion(t+delt,x+dxc,uk,params);
+            Pdot = A*(P+dPc) + (P+dPc)*A' + D*obj.Q(t+delt)*D';
+            dxd = f*delt;
+            dPd = Pdot*delt;
+        
+            % 4th order Runge-Kutta integration result
+            x = x + (dxa + 2*(dxb + dxc) + dxd)/6;
+            P = P + (dPa + 2*(dPb + dPc) + dPd)/6;
+            t = t + delt;
+        
+        end
+        
+        % Assign the results to the appropriate outputs.
+        xbarkp1 = x;
+        Pbarkp1 = P;
 
-end
+    end % predict
+
+    function [xhatkp1,Pkp1,nukp1,Skp1] = correct(obj,kp1,zkp1,xbarkp1,ukp1,Pbarkp1,params)
+        %predict Measurement correction step of the EKF
+
+        % Predicted output of the system
+        [zbarkp1,Hkp1] = obj.MeasurementModel(kp1,xbarkp1,ukp1,params);
+
+        % Innovations
+        nukp1 = zkp1 - zbarkp1;
+        Rkp1 = obj.R(kp1);
+        Skp1 = Hkp1*Pbarkp1*Hkp1' + Rkp1;
+
+        % Kalman gain
+        Kkp1 = Pbarkp1*Hkp1'/Skp1;
+
+        % State estimate
+        nx = size(xbarkp1,1);
+        xhatkp1 = xbarkp1 + Kkp1*nukp1;
+        Pkp1 = (eye(nx)-Kkp1*Hkp1)*Pbarkp1; % or Pbarkp1 - Kkp1*Skp1*Kkp1'
+
+    end % predict
+
+end % public methods
+
+end % classdef

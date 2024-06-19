@@ -1,5 +1,5 @@
-classdef extendedKalmanFilterDT < stateEstimatorDT
-%extendedKalmanFilterDT
+classdef iteratedExtendedKalmanFilter < stateEstimatorDT
+%iteratedExtendedKalmanFilter
 %
 % Copyright (c) 2024 Jeremy W. Hopwood. All rights reserved.
 %
@@ -76,13 +76,19 @@ properties
 end
 
 properties (Access=private)
+    % A logical indicating whether the system was specified as a difference
+    % equation.
     differenceEquation logical
+
+    % A gaussNewtonEstimator object that is used to solve the MAP
+    % estimation problem of the iterated EKF.
+    GN
 end
 
 methods
 
-    function obj = extendedKalmanFilterDT(f,D,h,Q,R)
-        %extendedKalmanFilterDT Construct an instance of this class.
+    function obj = iteratedExtendedKalmanFilter(f,D,h,Q,R)
+        %iteratedExtendedKalmanFilter Construct an instance of this class.
         %
         % Inputs:
         %   f   The function handle that implements f in (1) or fc in (2).
@@ -108,10 +114,14 @@ methods
         obj.ProcessNoiseCovariance = Q;
         obj.MeasurementNoiseCovariance = R;
 
-    end % extendedKalmanFilterDT
+        % Create and store an empty Gauss-Newton estimator
+        obj.GN = gaussNewtonEstimator;
+        obj.GN.DisplayIterations = false;
 
-    function [xhat,P,nu,epsnu,sigdig] = simulate(obj,t,z,u,xhat0,P0,params)
-        %simulate This method performs discrete-time extended Kalman
+    end % iteratedExtendedKalmanFilter
+
+    function [xhat,P,what] = simulate(obj,t,z,u,xhat0,P0,params)
+        %simulate This method performs iterated extended Kalman
         % filtering for a given time history of measurments.
         %
         % Inputs:
@@ -147,27 +157,16 @@ methods
         %   P       The nx x nx x N array that contains the time history of
         %           the estimation error covariance.
         %
-        %   nu      The N x nz vector of innovations.
-        %
-        %   epsnu   The N x 1 vector of the normalized innovation statistic
-        %
-        %   sigdig  The approximate number of accurate significant decimal
-        %           places in the result. This is computed using the
-        %           condition number of inovation covariance, S.
-        %
 
         % Get the problem dimensions and initialize the output arrays.
         N = size(z,1);
         nx = size(xhat0,1);
-        nz = size(z,2);
+        nw = size(obj.Q(0),1);
         xhat = zeros(N,nx);
         P = zeros(nx,nx,N);
-        nu = zeros(N,nz);
-        epsnu = zeros(N,1);
         xhat(1,:) = xhat0.';
         P(:,:,1) = P0;
-        maxsigdig = -fix(log10(eps));
-        sigdig = maxsigdig;
+        what = zeros(N,nw);
         
         % if no inputs, set to a tall empty array
         if isempty(u)
@@ -193,88 +192,104 @@ methods
                 tk = t(ik);
                 tkp1 = t(ik+1);
             end
-        
-            % Perform the dynamic propagation of the state estimate.
-            xhatk = xhat(ik,:).';
-            uk = u(ik,:).';
-            Pk = P(:,:,ik);
-            [xbarkp1,Pbarkp1] = obj.predict(k,tk,tkp1,xhatk,uk,Pk,params);
-        
-            % Perform the measurement update of the state estimate.
+
+            % Measurement model used in the Gauss-Newton iterations.
             ukp1 = u(ik+1,:).';
-            zkp1 = z(ik+1,:).';
-            [xhatkp1,Pkp1,nukp1,Skp1] = obj.correct(k+1,zkp1,xbarkp1,ukp1,Pbarkp1,params);
-            
-            % Store the results
-            xhat(ik+1,:) = xhatkp1.';
-            P(:,:,ik+1) = Pkp1;
-            nu(ik+1,:) = nukp1.';
-            epsnu(ik+1,:) = nukp1'*(Skp1\nukp1);
+            obj.GN.MeasurementModel = @(k,xi,uk,params) obj.gaussNewtonModel(k,tk,tkp1,...
+                xi(1:nx,1),uk,ukp1,xi(nx+1:nx+nw,1),params);
         
-            % Check the condition number of Skp1 and infer the approximate
-            % numerical precision of the resulting estimate.
-            sigdigkp1 = maxsigdig - fix(log10(cond(Skp1)));
-            if sigdigkp1 < sigdig
-                sigdig = sigdigkp1;
+            % Perform Gauss-Newton iterations to solve the MAP estimation
+            % problem
+            xhatk = xhat(ik,:).';
+            zkp1 = z(ik+1,:).';
+            zetahist = [xhatk.' zeros(1,nw), zkp1.']; % Augmented measurements
+            Pk = P(:,:,ik);
+            obj.GN.MeasurementNoiseCovariance = ...
+                blkdiag(Pk,obj.Q(k),obj.R(k+1)); % Augmented covariance
+            xiguess = [xhatk; zeros(nw,1)];
+            uk = u(ik,:).';
+            [xisk,~,~,termflag] = obj.GN.estimate(zetahist,uk.',xiguess,params);
+            if termflag == 1
+                warning('Gauss-Newton estimation terminated due to more than 50 step size halvings.')
             end
+            if termflag == 2
+                warning('Gauss-Newton estimation terminated at maximum number of iterations.')
+            end
+            xsk = xisk(1:nx,1);
+            wsk = xisk(nx+1:nx+nw);
+            what(ik,:) = wsk.';
+
+            % Compute futute estimate using smoothed past estimates.
+            if obj.differenceEquation
+                [xhatkp1,Fk,Gk] = obj.DifferenceEquation(k,xsk,uk,wsk,params);
+            else
+                [xhatkp1,Fk,Gk] = obj.discretize(tk,tkp1,xsk,uk,wsk,params);
+            end
+            xhat(ik+1,:) = xhatkp1.';
+        
+            % Compute the covariance of the estimate
+            [~,Hskp1] = obj.MeasurementModel(k+1,xhatkp1,ukp1,params);
+            Pbarkp1 = Fk*Pk*Fk' + Gk*obj.Q(k)*Gk';
+            P(:,:,ik+1) = inv(inv(Pbarkp1) + (Hskp1'/obj.R(k+1))*Hskp1);
         
         end
 
     end % simulate
 
-    function [xbarkp1,Pbarkp1] = predict(obj,k,tk,tkp1,xhatk,uk,Pk,params)
-        %predict State propogation step of the EKF
-
-        % Process noise covariance
-        Qk = obj.Q(k);
-
-        % Propogate the system state to the next sample
-        if obj.differenceEquation
-            [xbarkp1,Fk,Gk] = obj.DifferenceEquation(k,xhatk,uk,[],params);
-        else
-            [xbarkp1,Fk,Gk] = obj.discretize(tk,tkp1,xhatk,uk,params);
-        end
-
-        % Compute the a priori state estimate error covariance
-        Pbarkp1 = Fk*Pk*Fk' + Gk*Qk*Gk';
-
-    end % predict
-
-    function [xhatkp1,Pkp1,nukp1,Skp1] = correct(obj,kp1,zkp1,xbarkp1,ukp1,Pbarkp1,params)
-        %predict Measurement correction step of the EKF
-
-        % Predicted output of the system
-        [zbarkp1,Hkp1] = obj.MeasurementModel(kp1,xbarkp1,ukp1,params);
-
-        % Innovations
-        nukp1 = zkp1 - zbarkp1;
-        Rkp1 = obj.R(kp1);
-        Skp1 = Hkp1*Pbarkp1*Hkp1' + Rkp1;
-
-        % Kalman gain
-        Kkp1 = Pbarkp1*Hkp1'/Skp1;
-
-        % State estimate
-        nx = size(xbarkp1,1);
-        xhatkp1 = xbarkp1 + Kkp1*nukp1;
-        Pkp1 = (eye(nx)-Kkp1*Hkp1)*Pbarkp1; % or Pbarkp1 - Kkp1*Skp1*Kkp1'
-
-    end % predict
-
 end % public methods
 
 methods (Access=private)
-    function [fk,Fk,Gk] = discretize(obj,tk,tkp1,xk,uk,params)
+    function [eta,detadxi] = gaussNewtonModel(obj,k,tk,tkp1,xk,uk,ukp1,wk,params)
+        %gaussNewtonModel
+        % 
+        % Outputs:      zeta = eta(xi) + nu
+        % Measurements: zeta = [xhat(k); 0; z(k+1)]
+        % Parameters    xi = [x(k); w(k)];
+        % Model:        eta = [x(k);w(k);h(k+1,f(k,x(k),u(k),w(k)),u(k+1))]
+        %
+
+        % Propogate the system state to the next sample and compute the
+        % modeled output
+        if obj.differenceEquation
+            [xbarkp1,Fk,Gk] = obj.DifferenceEquation(k,xk,uk,wk,params);
+        else
+            [xbarkp1,Fk,Gk] = obj.discretize(tk,tkp1,xk,uk,wk,params);
+        end
+        [zbarkp1,Hkp1] = obj.MeasurementModel(k+1,xbarkp1,ukp1,params);
         
+        % Get dimensions
+        nx = size(xk,1);
+        nw = size(wk,1);
+        nz = size(zbarkp1,1);
+        nxi = nx + nw;
+        nzeta = nx + nw + nz;
+        
+        % Compute the eta(xi) outputs
+        eta(1:nx,1) = xk;
+        eta(nx+1:nxi,1) = wk;
+        eta(nxi+1:nzeta,1) = zbarkp1;
+        
+        % Compute derivative if necessary. Return otherwise.
+        if nargout < 2
+            return
+        end
+        detadxi = [eye(nxi);Hkp1*Fk,Hkp1*Gk];
+
+    end
+
+    function [fk,Fk,Gk] = discretize(obj,tk,tkp1,xk,uk,wk,params)
+        %discretize Propogate the continuous-time dynamics from t(k) to
+        % t(k+1) under a zero-order hold assumption on the process noise.
+        % Since wtil(tk) is fixed, this propogation is deterministic.
+
         % Prepare for the Runge-Kutta numerical integration by setting up 
         % the initial conditions and the time step.
         x = xk;
         if nargout > 1
             nx = size(xk,1);
-            Dk = obj.Diffusion(tk,xk,uk,params);
-            nv = size(Dk,2);
+            nw = size(wk,1);
             F = eye(nx);
-            G = zeros(nx,nv);
+            G = zeros(nx,nw);
         end
         t = tk;
         dt = (tkp1 - tk)/obj.nRK;
@@ -284,48 +299,48 @@ methods (Access=private)
         for jj = 1:obj.nRK
 
             % Step a
+            D = obj.Diffusion(t,x,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t,x,uk,params);
-                D = obj.Diffusion(t,x,uk,params);
                 dFa = (A*F)*dt;
                 dGa = (A*G+D)*dt; 
             else
                 f = obj.Drift(t,x,uk,params);
             end
-            dxa = f*dt;
+            dxa = (f + D*wk)*dt;
         
             % Step b
+            D = obj.Diffusion(t+0.5*dt,x+0.5*dxa,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
-                D = obj.Diffusion(t+0.5*dt,x+0.5*dxa,uk,params);
                 dFb = (A*F)*dt;
                 dGb = (A*G+D)*dt; 
             else
                 f = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
             end
-            dxb = f*dt;
+            dxb = (f + D*wk)*dt;
         
             % Step c
+            D = obj.Diffusion(t+0.5*dt,x+0.5*dxb,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
-                D = obj.Diffusion(t+0.5*dt,x+0.5*dxb,uk,params);
                 dFc = (A*F)*dt;
                 dGc = (A*G+D)*dt; 
             else
                 f = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
             end
-            dxc = f*dt;
+            dxc = (f + D*wk)*dt;
         
             % Step d
+            D = obj.Diffusion(t+dt,x+dxc,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+dt,x+dxc,uk,params);
-                D = obj.Diffusion(t+dt,x+dxc,uk,params);
                 dFd = (A*F)*dt;
                 dGd = (A*G+D)*dt;
             else
                 f = obj.Drift(t+dt,x+dxc,uk,params);
             end
-            dxd = f*dt;
+            dxd = (f + D*wk)*dt;
         
             % 4th order Runge-Kutta integration result
             x = x + (dxa + 2*(dxb + dxc) + dxd)/6;
