@@ -1,4 +1,4 @@
-function [Q,nu] = processNoiseCovTruthData(t,x,u,nonlindyn,params)
+function [Q,nu] = processNoiseCovTruthData(t,x,u,f,params)
 %processNoiseCovTruthData
 %
 % Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
@@ -14,17 +14,17 @@ function [Q,nu] = processNoiseCovTruthData(t,x,u,nonlindyn,params)
 %
 %   u           The N x nu array of system inputs.
 %
-%   nonlindyn   The function handle that computes either the
+%   f           The function handle that computes either the
 %               continuous-time dynamics if t is given as a vector of
 %               sample times or the discrete-time dynamics if t is empty.
 %               The first line of nonlindyn must be in the form
-%                   [dxdt,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
+%                   dxdt = f(t,x,u,params)
 %               for a continuous-time system, or
-%                   [xkp1,Fk,Gamk] = nonlindyn(k,xk,uk,vk,dervflag,params)
+%                   xkp1 = f(k,xk,uk,wk,params)
 %               for a discrete-time system. If the system is given in
 %               discrete-time, then the first sample must correspond to
 %               sample number k = 0. If the system is linear, 
-%                   dxdt = A*x + B*u + vtil  or
+%                   dxdt = A*x + B*u + wtil  or
 %                   x(k+1) = F*x(k) + G*u(k) + w(k)
 %               then nonlindyn may be given as a cell array of the state
 %               space matrices {A,B} or {F,G}.
@@ -56,14 +56,14 @@ else
 end
 
 % Check to see whether the system is linear.
-if iscell(nonlindyn)
+if iscell(f)
     LTI = true;
     if DT
-        F = nonlindyn{1};
-        G = nonlindyn{2};
+        F = f{1};
+        G = f{2};
     else
         dt = median(diff(t));
-        sysc = ss(nonlindyn{1},nonlindyn{2},eye(nx),zeros(nx,nu));
+        sysc = ss(f{1},f{2},eye(nx),zeros(nx,nu));
         sysd = c2d(sysc,dt);
         F = sysd.A;
         G = sysd.B;
@@ -85,11 +85,11 @@ for k = 0:N-2
         fk(kp1,:) = (F*xk + G*uk).';
     else
         if DT
-            fk(kp1,:) = feval(nonlindyn,k,xk,uk,[],0,params).';
+            fk(kp1,:) = f(k,xk,uk,[],params).';
         else
             tk = t(kp1);
             tkp1 = t(kp1+1);
-            fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,nonlindyn,0,params);
+            fk(kp1,:) = c2dNonlinear(xk,uk,[],tk,tkp1,10,f,0,params);
         end
     end
     

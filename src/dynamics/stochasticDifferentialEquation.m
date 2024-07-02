@@ -86,7 +86,7 @@ methods
         end
     end
 
-    function [x,tEM,xEM,wtil] = simulate(obj,t,u,x0,dt,params)
+    function [x,tEM,xEM,wtil] = simulate(obj,t,u,x0,dt,params,W)
         %simulate Simulate the SDE (1) using the Euler-Maruyama scheme.
         %
         % Inputs:
@@ -95,6 +95,7 @@ methods
         %   x0      The nx x 1 initial condition
         %   dt      The integration time step (may be an empty array, [])
         %   params  The struct of parameters passed to the system model
+        %   W       (Optional) A pre-generated Wiener process
         %
         % Outputs:
         %   x       The N x nx array of state values at times in t
@@ -142,7 +143,11 @@ methods
             D = obj.Diffusion(tkm1,xkm1,ukm1,params);
 
             % Increment of the Wiener process W
-            dW = sqrtdt*randn(nw,1);
+            if nargin < 7 || isempty(W)
+                dW = sqrtdt*randn(nw,1);
+            else
+                dW = (W(k,:)-W(k-1,:)).';
+            end
 
             % Equivalent white noise vector
             wtil(k-1,:) = (obj.Sigma*dW/dt).';

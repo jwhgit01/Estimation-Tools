@@ -93,9 +93,6 @@ methods
     function obj = unscentedKalmanFilterCD(f,D,h,Q,R,alpha,beta,kappa,nx)
         %unscentedKalmanFilterCD Construct an instance of this class
 
-        % TODO: verify
-        warning("Something may be wrong in this class. TODO: verify.")
-
         % Store properties
         obj.Drift = f;
         obj.Diffusion = D;

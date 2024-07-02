@@ -1,4 +1,4 @@
-function [Q,nu] = processNoisePSDTruthData(t,x,xcirc,u,nonlindyn,params)
+function [Q,nu] = processNoisePSDTruthData(t,x,xcirc,u,f,params)
 %processNoisePSDTruthData
 %
 % Copyright (c) 2023 Jeremy W. Hopwood. All rights reserved.
@@ -16,12 +16,12 @@ function [Q,nu] = processNoisePSDTruthData(t,x,xcirc,u,nonlindyn,params)
 %
 %   u           The N x nu array of system inputs.
 %
-%   nonlindyn   The function handle that computes either the
+%   f          The function handle that computes either the
 %               continuous-time dynamics of the system. The first line of
 %               nonlindyn must be in the form
-%                   [dxdt,A,D] = nonlindyn(t,x,u,vtil,dervflag,params)
+%                   dxdt = drift(t,x,u,params)
 %               If the system is linear with
-%                   dxdt = A*x + B*u + vtil;
+%                   dxdt = A*x + B*u + w;
 %               nonlindyn may be given as the cell array {A,B}.
 %
 %   params      A struct of constants that get passed to the dynamics model
@@ -42,10 +42,10 @@ nx = size(x,2);
 xdot = zeros(N,nx);
 
 % Check to see if the system is linear
-if iscell(nonlindyn)
+if iscell(f)
     LTI = true;
-    A = nonlindyn{1};
-    B = nonlindyn{2};
+    A = f{1};
+    B = f{2};
 else
     LTI = false;
 end
@@ -58,7 +58,7 @@ for k = 1:N
     if LTI
         xdot(k,:) = (A*xk + B*uk).';
     else
-        xdot(k,:) = feval(nonlindyn,tk,xk,uk,[],0,params).';
+        xdot(k,:) = f(tk,xk,uk,params).';
     end
 end
 

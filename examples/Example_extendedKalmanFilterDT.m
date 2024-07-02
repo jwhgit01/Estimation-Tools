@@ -1,36 +1,51 @@
-close all
+% close all
 clear
 clc
 addpath(genpath('../'))
 
-% User options
-ContinuousTimeSimulation = true;
+% System on which extended Kalman filtering is to be performed
+system = "RigidBody"; % "RigidBody" or "Lorenz"
 
-if ContinuousTimeSimulation
+% Use continuous-time simulation data or true discrete-time system data
+DiscreteTimeData = true;
 
-    % Load data
-    load ContinuousTimeNonlinearSystem.mat t x z Sigma R params tSim xSim
-
-    % Equivalent discrete-time process noise covariance
-    dt = median(diff(t));
-    Q = Sigma*Sigma'/dt;
-
-    % Create the EKF
-    EKF = extendedKalmanFilterDT(@driftModel,@diffusionModel,@measurementModel,Q,R);
-
+if strcmp(system,"RigidBody")
+    load ExampleData_RigidBody.mat t dt x xd z zd Sigma Q R params tSim xSim
+    if DiscreteTimeData
+        f = @differenceEquation_RigidBody;
+        D = [];
+    else
+        f = @driftModel_RigidBody;
+        D = @diffusionModel_RigidBody;
+    end
+    h = @measurementModel_RigidBody;
+    nx = 6;
+    nw = 3;
+    nz = 6;
+elseif strcmp(system,"Lorenz")
+    load ExampleData_Lorenz.mat t dt x xd z zd Sigma Q R params tSim xSim
+    if DiscreteTimeData
+        f = @differenceEquation_Lorenz;
+        D = [];
+    else
+        f = @driftModel_Lorenz;
+        D = @diffusionModel_Lorenz;
+    end
+    h = @measurementModel_Lorenz;
+    nx = 3;
+    nw = 1;
+    nz = 2;
 else
-
-    % Load data
-    load DiscreteTimeNonlinearSystem.mat t x z w Q R params
-
-    % Create the EKF
-    EKF = extendedKalmanFilterDT(@differenceEquation,[],@measurementModel,Q,R);
-
+    error('System not recognized')
 end
 
+
+% Create the EKF
+EKF = extendedKalmanFilterDT(f,D,h,Q,R);
+
 % Initial Condition
-xhat0 = [0;0;0];
-P0 = 10*eye(3);
+xhat0 = zeros(nx,1);
+P0 = eye(nx);
 
 % Run the filter on the data
 [xhat,P,nu,epsnu,sigdig] = EKF.simulate(t,z,[],xhat0,P0,params);

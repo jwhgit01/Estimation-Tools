@@ -69,10 +69,14 @@ properties
     % of parameters.
     MeasurementModel
 
-    % The number of intermediate 4th order Runge-Kutta intergation steps
-    % between samples. This property is only used if a continuous-time
+    % The number of intermediate intergation steps between samples for a
+    % continous-time model. This property is only used if a continuous-time
     % system is given (i.e., DifferenceEquation = []).
     nRK
+
+    % The method used for discretization of the stochastic differential
+    % equation represented by (2). It may be "Euler-Maruyama", "Milstein"
+    % TODO
 end
 
 properties (Access=private)
@@ -278,9 +282,9 @@ methods (Access=private)
     end
 
     function [fk,Fk,Gk] = discretize(obj,tk,tkp1,xk,uk,wk,params)
-        %discretize Propogate the continuous-time dynamics from t(k) to
-        % t(k+1) under a zero-order hold assumption on the process noise.
-        % Since wtil(tk) is fixed, this propogation is deterministic.
+        %discretize Discretize the SDE for a fixed dW between samples. Use
+        % a Runge-Kutta integration on the drift part of the system and a
+        % one-step Euler-Maruyama on the noise part.
 
         % Prepare for the Runge-Kutta numerical integration by setting up 
         % the initial conditions and the time step.
@@ -293,54 +297,56 @@ methods (Access=private)
         end
         t = tk;
         dt = (tkp1 - tk)/obj.nRK;
-
+        
         % This loop does one 4th-order Runge-Kutta numerical integration
-        % step per iteration.
+        % step per iteration.  Integrate the state.  If partial derivatives
+        % are to be calculated, then the partial derivative matrices
+        % simultaneously with the state.
         for jj = 1:obj.nRK
-
+        
             % Step a
-            D = obj.Diffusion(t,x,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t,x,uk,params);
+                D = obj.Diffusion(t,x,uk,params);
                 dFa = (A*F)*dt;
                 dGa = (A*G+D)*dt; 
             else
                 f = obj.Drift(t,x,uk,params);
             end
-            dxa = (f + D*wk)*dt;
+            dxa = f*dt;
         
             % Step b
-            D = obj.Diffusion(t+0.5*dt,x+0.5*dxa,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
+                D = obj.Diffusion(t+0.5*dt,x+0.5*dxa,uk,params);
                 dFb = (A*F)*dt;
                 dGb = (A*G+D)*dt; 
             else
                 f = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
             end
-            dxb = (f + D*wk)*dt;
+            dxb = f*dt;
         
             % Step c
-            D = obj.Diffusion(t+0.5*dt,x+0.5*dxb,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
+                D = obj.Diffusion(t+0.5*dt,x+0.5*dxb,uk,params);
                 dFc = (A*F)*dt;
                 dGc = (A*G+D)*dt; 
             else
                 f = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
             end
-            dxc = (f + D*wk)*dt;
+            dxc = f*dt;
         
             % Step d
-            D = obj.Diffusion(t+dt,x+dxc,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t+dt,x+dxc,uk,params);
+                D = obj.Diffusion(t+dt,x+dxc,uk,params);
                 dFd = (A*F)*dt;
                 dGd = (A*G+D)*dt;
             else
                 f = obj.Drift(t+dt,x+dxc,uk,params);
             end
-            dxd = (f + D*wk)*dt;
+            dxd = f*dt;
         
             % 4th order Runge-Kutta integration result
             x = x + (dxa + 2*(dxb + dxc) + dxd)/6;
@@ -351,14 +357,16 @@ methods (Access=private)
             t = t + dt;
         
         end
-
-        % Assign the results to the appropriate outputs.
-        fk = x;
-        if nargout < 2 
+        
+        % Add the noise from 1-step Euler-Maruyama scheme
+        Dk = obj.Diffusion(tk,xk,uk,params);
+        fk = x + Dk*wk;
+        if nargout < 2
             return
         end
         Fk = F;
         Gk = G;
+        
     end % discretize
 end % private methods
 
