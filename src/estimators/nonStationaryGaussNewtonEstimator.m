@@ -1,5 +1,5 @@
-classdef gaussNewtonEstimator
-%gaussNewtonEstimator
+classdef nonStationaryGaussNewtonEstimator
+%nonStationaryGaussNewtonEstimator
 %
 % Copyright (c) 2024 Jeremy W. Hopwood. All rights reserved.
 %
@@ -12,9 +12,9 @@ classdef gaussNewtonEstimator
 % each v(k) is independently sampled from a Gaussian distribution with zero
 % mean and covariance R(k). It aims to minimize the cost function
 %
-%             N-1 /              T  -1               \
-%      J[x] = SUM | [z(k)-h(k,x)]  R   [z(k)-h(k,x)] |                  (2)
-%             k=0 \                                  /
+%              N  /              T     -1                \
+%      J[x] = SUM | [z(i)-h(i,x)]   R(i)   [z(i)-h(i,x)] |              (2)
+%             i=1 \                                      /
 %
 % Properties:
 %   MeasurementModel
@@ -34,9 +34,10 @@ properties
     % of constant parameters.
     MeasurementModel
 
-    % The inverse of the Cholesky factor of the constant nz x nz
-    % measurement noise covariance, R.
-    invCholR double
+    % The measurement noise covariance, which may be a constant matrix, an
+    % nz x nz x N 3-dimensional array, or the handle of a function whose
+    % input is the sample number, k.
+    MeasurementNoiseCovariance
 
     % A logical indicating whether information about the Gauss-Newton
     % iterations should be displayed.
@@ -60,12 +61,16 @@ properties
     maxIterations (1,1) {mustBeInteger,mustBePositive} = 100;
 end % public properties
 
+properties (SetAccess=immutable,Hidden)
+    invCholR
+end % hidden immutable properties
+
 properties (Access=private)
     %
 end % private properties
 
 methods
-    function obj = gaussNewtonEstimator(h,R)
+    function obj = nonStationaryGaussNewtonEstimator(h,R)
         %gaussNewtonEstimator Construct an instance of this class
 
         % Empty object
@@ -75,7 +80,12 @@ methods
 
         % Store properties
         obj.MeasurementModel = h;
-        obj.invCholR = inv(chol(R));
+        obj.MeasurementNoiseCovariance = R;
+
+        % Inverse of the Cholesky factor of R
+        if ~isa(R,'function_handle') && size(R,3) == 1
+            obj.invCholR = inv(chol(R));
+        end
 
     end % gaussNewtonEstimator
 
@@ -269,11 +279,10 @@ methods
         if nargout == 1
             dza = zeros(nz*N,1);
             sidx = 1:nz;
-            for k = 0:N-1
-                ik = k+1;
-                uk = u(ik,:).';
-                zk = z(ik,:).';
-                Rainvk = obj.invCholR;
+            for k = 1:N
+                uk = u(k,:).';
+                zk = z(k,:).';
+                Rainvk = obj.getInvCholR(k-1); 
                 hk = obj.MeasurementModel(k,x,uk,params);
                 dza(sidx,1) = Rainvk'*(zk - hk);
                 sidx = sidx + nz;
@@ -287,11 +296,13 @@ methods
         dza = zeros(nz*N,1);
         Ha = zeros(nz*N,nx);
         sidx = 1:nz;
-        for k = 0:N-1
-            ik = k+1;
-            uk = u(ik,:).';
-            zk = z(ik,:).';
-            Rainvk = obj.invCholR;
+        if isempty(u)
+            u = zeros(N,0);
+        end
+        for k = 1:N
+            uk = u(k,:).';
+            zk = z(k,:).';
+            Rainvk = obj.getInvCholR(k);
             [hk,Hk] = obj.MeasurementModel(k-1,x,uk,params);
             if size(Hk,2) < nx
                 Hk = repmat(Hk,1,nx);
@@ -314,5 +325,24 @@ methods
     end % cost
 
 end % public methods
+
+methods (Access=private)
+    function [Rainv,obj] = getInvCholR(obj,k)
+        %Rainv Get the inverse of the cholsesly factor of the measurement
+        % noise covariance at the current sample number.
+        if ~isempty(obj.invCholR)
+            Rainv = obj.invCholR;
+            return
+        end
+        if isa(obj.MeasurementNoiseCovariance,'function_handle')
+            Rainv = inv(chol(obj.MeasurementNoiseCovariance(k)));
+        elseif size(obj.MeasurementNoiseCovariance,3) > 1
+            Rainv = inv(chol(obj.MeasurementNoiseCovariance(:,:,k+1)));
+        else
+            Rainv = inv(chol(obj.MeasurementNoiseCovariance));
+            obj.invCholR = Rainv;
+        end
+    end % getInvCholR
+end % private methods
 
 end % classdef

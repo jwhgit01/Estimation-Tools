@@ -86,12 +86,12 @@ methods
         end
     end
 
-    function [x,tEM,xEM,wtil] = simulate(obj,t,u,x0,dt,params,W)
+    function [x,tEM,xEM,wtil] = simulate(obj,t,ufun,x0,dt,params,W)
         %simulate Simulate the SDE (1) using the Euler-Maruyama scheme.
         %
         % Inputs:
         %   t       The N x 1 array of sample times
-        %   u       The N x nu array of inputs
+        %   ufun    The handle for the function u = ufun(t,x)
         %   x0      The nx x 1 initial condition
         %   dt      The integration time step (may be an empty array, [])
         %   params  The struct of parameters passed to the system model
@@ -112,11 +112,6 @@ methods
         t0 = t(1);
         T = t(end);
 
-        % Check input vector
-        if isempty(u)
-            u = zeros(length(t),1);
-        end
-
         % Euler-Maruyama time steps
         if isempty(dt)
             dt = median(diff(t))/10;
@@ -136,7 +131,11 @@ methods
             % State, time, and input at previous time step
             xkm1 = xEM(k-1,:).';
             tkm1 = tEM(k-1);
-            ukm1 = interp1(t,u,tkm1,"previous"); 
+            if isempty(ufun)
+                ukm1 = [];
+            else
+                ukm1 = ufun(tkm1,xkm1);
+            end
 
             % Drift vector and diffusion matrix
             f = obj.Drift(tkm1,xkm1,ukm1,params);

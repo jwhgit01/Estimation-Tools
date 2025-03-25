@@ -1,9 +1,9 @@
-classdef extendedKalmanFilterCD < stateEstimatorCD
-%extendedKalmanFilterCD
+classdef invariantExtendedKalmanFilterCD < stateEstimatorCD
+%invariantExtendedKalmanFilterCD
 %
 % Copyright (c) 2024 Jeremy W. Hopwood. All rights reserved.
 %
-% This class defines the continuous-discrete (hybrid) extended Kalman
+% This class defines the continuous-discrete invariant extended Kalman
 % filter for the continuous-time nonlinear system
 %
 %             dx/dt = f(t,x(t),u(t)) + D(t,x(t),u(t))*wtil(t)           (1)
@@ -51,121 +51,51 @@ properties
     % struct of parameters.
     Diffusion
 
-    % The function handle that defines the measurment model (2). It must be
-    % in the form [y,H] = meas(k,x,u,params), where y is the modeleed
-    % output of the system H is its Jacobian. Here, k is the sample number,
-    % x is the state vector, u is the input vector, and params is a struct
-    % of parameters.
-    MeasurementModel
+    % function handle that defines the transformation group under which the
+    % dynamics are invariant. It must be in the form
+    % [X,U] = transformation(g,x,u,params), where g is an element of the
+    % Lie Group G, x is the state vector, u is the input vector, and params
+    % is a struct of parameters.
+    TransformationGroup
+
+    % The function handle that defines a moving frame. It must be in the
+    % form  gamma = movingFrame(x,params), where x is the state vector and
+    % params is a struct of parameters. The output gamma is an element of
+    % the Lie group G.
+    MovingFrame
+
+    % The function handle that defines the invariant output error. It must
+    % be in the form [E,H] = invOutputError(xhat,u,y,params), where E is an 
+    % invariant output error function and H is its Jacobian. Here, xhat is
+    % the current state estimate, u is the input, y is the measured
+    % output of the system, and params is a struct of parameters.
+    % InvariantOutputError
+
+    % The function handle that defines the invariant frame W. It must be
+    % in the form W = frame(xhat,params). Here, xhat is the current state
+    % estimate and params is a struct of parameters.
+    InvariantFrame
 end
 
 methods
 
-    function obj = extendedKalmanFilterCD(f,D,h,Q,R)
-        %extendedKalmanFilterCD Construct an instance of this class
+    function obj = invariantExtendedKalmanFilterCD(f,D,phi,gam,W,Q,R)
+        %invariantExtendedKalmanFilterCD Construct an instance of this class
 
         % Store properties
         obj.Drift = f;
         obj.Diffusion = D;
-        obj.MeasurementModel = h;
+        obj.TransformationGroup = phi;
+        obj.MovingFrame = gam;
+        obj.InvariantFrame = W;
         obj.ProcessNoisePSD = Q;
         obj.MeasurementNoiseCovariance = R;
 
-    end % extendedKalmanFilterCD
+    end % invariantExtendedKalmanFilterCD
 
-    function [xs,Ps,xhat,P] = smooth(obj,t,z,u,xhat0,P0,params)
-        %smooth This method performs continuous-discrete extended
-        % Rauch–Tung–Striebel (RTS) smoothing for a given time history
-        % of measurments.
-        %
-        % Inputs:
-        %
-        %   t       The N x 1 sample time vector. The first element of t
-        %           corresponds to the time of the initial condition.
-        %
-        %   z       The N x nz time history of measurements. The first
-        %           element of z corresponds to sample k=0, which occurs at
-        %           time t=0, and thus is not used.
-        %
-        %   u       The N x nu time history of system inputs (optional). If
-        %           not applicable set to an empty array, []. The first
-        %           element of u corresponds to the input at the initial
-        %           condition.
-        %
-        %   xhat0   The nx x 1 initial state estimate.
-        %
-        %   P0      The nx x nx symmetric positive definite initial state
-        %           estimation error covariance matrix.
-        %
-        %   params  An array or struct of constants that get passed to the
-        %           dynamics model and measurement model functions.
-        %  
-        % Outputs:
-        %
-        %   xs      The N x nx array that contains the time history of the
-        %           smoothed state vector estimates.
-        %
-        %   Ps      The nx x nx x N array that contains the time history of
-        %           the smoothed estimation error covariance.
-        %
-        %   xhat    The N x nx array that contains the time history of the
-        %           state vector estimates.
-        %
-        %   P       The nx x nx x N array that contains the time history of
-        %           the estimation error covariance.
-        %
-
-        % Get the problem dimensions and initialize the output arrays.
-        N = size(z,1);
-        
-        % if no inputs, set to a tall empty array
-        if isempty(u)
-            u = zeros(N,0);
-        end
-        
-        % First, perform extended Kalman filtering forward in time.
-        [xhat,P] = obj.simulate(t,z,u,xhat0,P0,params);
-        
-        % Initialize the smoothed outputs
-        xs = xhat;
-        Ps = P;
-        
-        % Get the covariance and mean at the last sample.
-        Psk = P(:,:,N);
-        xsk = xhat(N,:).';
-
-        % This loop propagates backwards in time and performs RTS smoothing.
-        for k = N-1:-1:1
-
-            % Display the time periodically
-            obj.dispIter(t(k+1));
-        
-            % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
-            ik = k+1;
-        
-            % Smooth the sigma points backwards in time.
-            tk = t(ik);
-            tkm1 = t(ik-1);
-            xhatk = xhat(ik,:).';
-            Pk = P(:,:,ik);
-            uk = u(ik,:).';
-            [xskm1,Pskm1] = obj.rts(tk,tkm1,xsk,uk,Psk,xhatk,Pk,params);
-        
-            % Store the mean and covariance
-            xs(ik-1,:) = xskm1;
-            Ps(:,:,ik-1) = Pskm1;
-
-            % Update xsk and Psk
-            xsk = xskm1;
-            Psk = Pskm1;
-        
-        end
-
-    end % smooth
-
-    function [xhat,P,nu,epsnu,sigdig] = simulate(obj,t,z,u,xhat0,P0,params)
-        %simulate This method performs continuous-discrete extended Kalman
-        % filtering for a given time history of measurments.
+    function [xhat,P] = simulate(obj,t,z,u,xhat0,P0,params)
+        %simulate This method performs continuous-discrete invariant 
+        % extended Kalman filtering for a given time history of measurments
         %
         % Inputs:
         %
@@ -196,28 +126,15 @@ methods
         %
         %   P       The nx x nx x N array that contains the time history of
         %           the estimation error covariance.
-        %
-        %   nu      The N x nz vector of innovations.
-        %
-        %   epsnu   The N x 1 vector of the normalized innovation statistic
-        %
-        %   sigdig  The approximate number of accurate significant decimal
-        %           places in the result. This is computed using the
-        %           condition number of inovation covariance, S.
         %
 
         % Get the problem dimensions and initialize the output arrays.
         N = size(z,1);
         nx = size(xhat0,1);
-        nz = size(z,2);
         xhat = zeros(N,nx);
         P = zeros(nx,nx,N);
-        nu = zeros(N,nz);
-        epsnu = zeros(N,1);
         xhat(1,:) = xhat0.';
         P(:,:,1) = P0;
-        maxsigdig = -fix(log10(eps));
-        sigdig = maxsigdig;
         
         % if no inputs, set to a tall empty array
         if isempty(u)
@@ -246,27 +163,18 @@ methods
             % Perform the measurement update of the state estimate.
             ukp1 = u(ik+1,:).';
             zkp1 = z(ik+1,:).';
-            [xhatkp1,Pkp1,nukp1,Skp1] = obj.correct(k+1,zkp1,xbarkp1,ukp1,Pbarkp1,params);
+            [xhatkp1,Pkp1] = obj.correct(k+1,zkp1,xbarkp1,ukp1,Pbarkp1,params);
             
             % Store the results
             xhat(ik+1,:) = xhatkp1.';
             P(:,:,ik+1) = Pkp1;
-            nu(ik+1,:) = nukp1.';
-            epsnu(ik+1,:) = nukp1'*(Skp1\nukp1);
-        
-            % Check the condition number of Skp1 and infer the approximate
-            % numerical precision of the resulting estimate.
-            sigdigkp1 = maxsigdig - fix(log10(cond(Skp1)));
-            if sigdigkp1 < sigdig
-                sigdig = sigdigkp1;
-            end
         
         end
 
     end % simulate
 
     function [xbarkp1,Pbarkp1] = predict(obj,tk,tkp1,xhatk,uk,Pk,params)
-        %predict State propogation step of the EKF
+        %predict State propogation step of the invariant EKF
         
         % Prepare for the Runge-Kutta numerical integration by setting up 
         % the initial conditions and the time step.

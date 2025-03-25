@@ -6,8 +6,8 @@ function [f,A] = driftModel_RigidBody(t,x,u,params)
 % This function implements drift vector field, f, for a randomly forced
 % rigid body in rotation using Euler angle kinematics
 %
-%   d(Theta) = LIB(Theta)*omega*dt                                     (1a)
-%   d(omega) = inv(I)*(cross(I*omega,omega))*dt + RIB(Theta)*Sigma*dW  (1b)
+%  d(Theta) = LIB(Theta)*omega*dt                                      (1a)
+%  d(omega) = inv(I)*(cross(I*omega,omega))*dt + RIB'(Theta)*Sigma*dW  (1b)
 %
 % Inputs:
 %

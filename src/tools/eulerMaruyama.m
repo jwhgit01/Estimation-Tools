@@ -15,9 +15,6 @@ function [t,x] = eulerMaruyama(f,D,sig,x0,dt,tspan)
 %   out1    The first output...
 %
 
-% Set RNG to default seed for reproducability
-rng("default");
-
 % Dimensions
 n = size(x0,1);
 q = size(sig,2);

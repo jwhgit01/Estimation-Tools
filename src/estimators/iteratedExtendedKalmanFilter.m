@@ -20,7 +20,7 @@ classdef iteratedExtendedKalmanFilter < stateEstimatorDT
 %                       z(k) = h(k,x(k)) + v(k)                         (4)
 %
 % where each w(k) is independently samped from a Gaussian distribtion with
-% zero mean and covariance R(k).
+% zero mean and covariance R (stationary).
 %
 % Properties
 %   nonlinearDynamics
@@ -119,7 +119,7 @@ methods
         obj.MeasurementNoiseCovariance = R;
 
         % Create and store an empty Gauss-Newton estimator
-        obj.GN = gaussNewtonEstimator;
+        obj.GN = gaussNewtonEstimator([],R);
         obj.GN.DisplayIterations = false;
 
     end % iteratedExtendedKalmanFilter
@@ -176,6 +176,9 @@ methods
         if isempty(u)
             u = zeros(N,0);
         end
+
+        % Measurement noise covariance
+        R = obj.MeasurementNoiseCovariance;
         
         % This loop performs one model propagation step and one measurement
         % update step per iteration.
@@ -208,16 +211,15 @@ methods
             zkp1 = z(ik+1,:).';
             zetahist = [xhatk.' zeros(1,nw), zkp1.']; % Augmented measurements
             Pk = P(:,:,ik);
-            obj.GN.MeasurementNoiseCovariance = ...
-                blkdiag(Pk,obj.Q(k),obj.R(k+1)); % Augmented covariance
+            obj.GN.invCholR = inv(chol(blkdiag(Pk,obj.Q(k),R))); % Augmented covariance
             xiguess = [xhatk; zeros(nw,1)];
             uk = u(ik,:).';
             [xisk,~,~,termflag] = obj.GN.estimate(zetahist,uk.',xiguess,params);
             if termflag == 1
-                warning('Gauss-Newton estimation terminated due to more than 50 step size halvings.')
+                % warning('Gauss-Newton estimation terminated due to more than 50 step size halvings.')
             end
             if termflag == 2
-                warning('Gauss-Newton estimation terminated at maximum number of iterations.')
+                % warning('Gauss-Newton estimation terminated at maximum number of iterations.')
             end
             xsk = xisk(1:nx,1);
             wsk = xisk(nx+1:nx+nw);
@@ -234,7 +236,7 @@ methods
             % Compute the covariance of the estimate
             [~,Hskp1] = obj.MeasurementModel(k+1,xhatkp1,ukp1,params);
             Pbarkp1 = Fk*Pk*Fk' + Gk*obj.Q(k)*Gk';
-            P(:,:,ik+1) = inv(inv(Pbarkp1) + (Hskp1'/obj.R(k+1))*Hskp1);
+            P(:,:,ik+1) = inv(inv(Pbarkp1) + (Hskp1'/R)*Hskp1);
         
         end
 
@@ -259,7 +261,7 @@ methods (Access=private)
         else
             [xbarkp1,Fk,Gk] = obj.discretize(tk,tkp1,xk,uk,wk,params);
         end
-        [zbarkp1,Hkp1] = obj.MeasurementModel(k+1,xbarkp1,ukp1,params);
+        [zbarkp1,Hkp1] = obj.MeasurementModel(k,xbarkp1,ukp1,params);
         
         % Get dimensions
         nx = size(xk,1);
@@ -282,12 +284,11 @@ methods (Access=private)
     end
 
     function [fk,Fk,Gk] = discretize(obj,tk,tkp1,xk,uk,wk,params)
-        %discretize Discretize the SDE for a fixed dW between samples. Use
-        % a Runge-Kutta integration on the drift part of the system and a
-        % one-step Euler-Maruyama on the noise part.
+        %discretize Discretize the SDE using an Euler integration method
+        % for numerical efficiency assuming fixed wk between samples.
 
-        % Prepare for the Runge-Kutta numerical integration by setting up 
-        % the initial conditions and the time step.
+        % Prepare for the numerical integration by setting up the initial
+        % conditions and the time step.
         x = xk;
         if nargout > 1
             nx = size(xk,1);
@@ -298,69 +299,24 @@ methods (Access=private)
         t = tk;
         dt = (tkp1 - tk)/obj.nRK;
         
-        % This loop does one 4th-order Runge-Kutta numerical integration
-        % step per iteration.  Integrate the state.  If partial derivatives
-        % are to be calculated, then the partial derivative matrices
-        % simultaneously with the state.
+        % This loop does one Euler step step per iteration. Integrate the
+        % state.  If partial derivatives are to be calculated, then the
+        % partial derivative matrices simultaneously with the state.
         for jj = 1:obj.nRK
-        
-            % Step a
+            D = obj.Diffusion(t,x,uk,params);
             if nargout > 1
                 [f,A] = obj.Drift(t,x,uk,params);
-                D = obj.Diffusion(t,x,uk,params);
-                dFa = (A*F)*dt;
-                dGa = (A*G+D)*dt; 
+                F = F + (A*F)*dt;
+                G = G + (A*G+D)*dt; 
             else
                 f = obj.Drift(t,x,uk,params);
             end
-            dxa = f*dt;
-        
-            % Step b
-            if nargout > 1
-                [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
-                D = obj.Diffusion(t+0.5*dt,x+0.5*dxa,uk,params);
-                dFb = (A*F)*dt;
-                dGb = (A*G+D)*dt; 
-            else
-                f = obj.Drift(t+0.5*dt,x+0.5*dxa,uk,params);
-            end
-            dxb = f*dt;
-        
-            % Step c
-            if nargout > 1
-                [f,A] = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
-                D = obj.Diffusion(t+0.5*dt,x+0.5*dxb,uk,params);
-                dFc = (A*F)*dt;
-                dGc = (A*G+D)*dt; 
-            else
-                f = obj.Drift(t+0.5*dt,x+0.5*dxb,uk,params);
-            end
-            dxc = f*dt;
-        
-            % Step d
-            if nargout > 1
-                [f,A] = obj.Drift(t+dt,x+dxc,uk,params);
-                D = obj.Diffusion(t+dt,x+dxc,uk,params);
-                dFd = (A*F)*dt;
-                dGd = (A*G+D)*dt;
-            else
-                f = obj.Drift(t+dt,x+dxc,uk,params);
-            end
-            dxd = f*dt;
-        
-            % 4th order Runge-Kutta integration result
-            x = x + (dxa + 2*(dxb + dxc) + dxd)/6;
-            if nargout > 1
-                F = F + (dFa + 2*(dFb + dFc) + dFd)/6;
-                G = G + (dGa + 2*(dGb + dGc) + dGd)/6;
-            end
+            x = x + (f+D*wk)*dt;
             t = t + dt;
-        
         end
-        
-        % Add the noise from 1-step Euler-Maruyama scheme
-        Dk = obj.Diffusion(tk,xk,uk,params);
-        fk = x + Dk*wk;
+
+        % Return the result
+        fk = x;
         if nargout < 2
             return
         end

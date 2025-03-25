@@ -117,6 +117,105 @@ methods
 
     end % unscentedKalmanFilterCD
 
+    function [xs,Ps,xhat,P,vtil] = smooth(obj,t,z,u,xhat0,P0,params)
+        %smooth This method performs continuous-discrete unscented
+        % Rauch–Tung–Striebel (RTS) smoothing for a given time history
+        % of measurments.
+        %
+        % Inputs:
+        %
+        %   t       The N x 1 sample time vector. The first element of t
+        %           corresponds to the time of the initial condition.
+        %
+        %   z       The N x nz time history of measurements. The first
+        %           element of z corresponds to sample k=0, which occurs at
+        %           time t=0, and thus is not used.
+        %
+        %   u       The N x nu time history of system inputs (optional). If
+        %           not applicable set to an empty array, []. The first
+        %           element of u corresponds to the input at the initial
+        %           condition.
+        %
+        %   xhat0   The nx x 1 initial state estimate.
+        %
+        %   P0      The nx x nx symmetric positive definite initial state
+        %           estimation error covariance matrix.
+        %
+        %   params  An array or struct of constants that get passed to the
+        %           dynamics model and measurement model functions.
+        %  
+        % Outputs:
+        %
+        %   xs      The N x nx array that contains the time history of the
+        %           smoothed state vector estimates.
+        %
+        %   Ps      The nx x nx x N array that contains the time history of
+        %           the smoothed estimation error covariance.
+        %
+        %   xhat    The N x nx array that contains the time history of the
+        %           state vector estimates.
+        %
+        %   P       The nx x nx x N array that contains the time history of
+        %           the estimation error covariance.
+        %
+
+        % Get the problem dimensions and initialize the output arrays.
+        N = size(z,1);
+        
+        % if no inputs, set to a tall empty array
+        if isempty(u)
+            u = zeros(N,0);
+        end
+        
+        % First, perform unscented Kalman filtering forward in time.
+        [xhat,P] = obj.simulate(t,z,u,xhat0,P0,params);
+        
+        % Initialize the smoothed outputs
+        xs = xhat;
+        Ps = P;
+        vtil = zeros(N,size(obj.Q(0),1));
+        
+        % Get the covariance and mean at the last sample.
+        Psk = P(:,:,N);
+        xsk = xhat(N,:).';
+
+        % This loop propagates backwards in time and performs RTS smoothing.
+        for k = N-1:-1:1
+
+            % Display the time periodically
+            obj.dispIter(t(k+1));
+        
+            % Recall, arrays are 1-indexed, but the initial condition occurs at k=0
+            ik = k+1;
+        
+            % Smooth the sigma points backwards in time.
+            tk = t(ik);
+            tkm1 = t(ik-1);
+            xhatk = xhat(ik,:).';
+            Pk = P(:,:,ik);
+            uk = u(ik,:).';
+            [xskm1,Pskm1] = obj.rts(tk,tkm1,xsk,uk,Psk,xhatk,Pk,params);
+
+            % Approximate the noise
+            dtk = tk - tkm1;
+            ukm1 = u(ik-1,:).';
+            fkm1 = obj.Drift(tkm1,xskm1,ukm1,params);
+            Dkm1 = obj.Diffusion(tkm1,xskm1,ukm1,params);
+            vtilkm1 = pinv(Dkm1)*(xsk - fkm1*dtk);
+            vtil(ik-1,:) = vtilkm1.';
+        
+            % Store the mean and covariance
+            xs(ik-1,:) = xskm1;
+            Ps(:,:,ik-1) = Pskm1;
+
+            % Update xsk and Psk
+            xsk = xskm1;
+            Psk = Pskm1;
+        
+        end
+
+    end % smooth
+
     function [xhat,P,nu,epsnu] = simulate(obj,t,z,u,xhat0,P0,params)
         %simulate This method performs continuous-discrete unscented Kalman
         % filtering for a given time history of measurments.
@@ -288,6 +387,55 @@ methods
 
     end % correct
 
+    function [xskm1,Pskm1] = rts(obj,tk,tkm1,xsk,uk,Psk,xhatk,Pk,params)
+        %rts RTS smoothing step of the UK smoother
+        
+        % Prepare for the Runge-Kutta numerical integration by setting up 
+        % the initial conditions and the time step.
+        xs = xsk;
+        Ps = Psk;
+        t = tk;
+        dt = (tkm1-tk)/obj.nRK;
+
+        % This loop does one 4th-order Runge-Kutta numerical integration
+        % step per iteration.  Integrate the state.  If partial derivatives
+        % are to be calculated, then the partial derivative matrices
+        % simultaneously with the state.
+        for jj = 1:obj.nRK
+        
+            % Step a
+            [dxsdt,dPsdt] = obj.sigmaPointSmootherDynamicsCT(t,xs,Ps,xhatk,Pk,uk,params);
+            dxsa = dxsdt*dt;
+            dPsa = dPsdt*dt;
+        
+            % Step b
+            [dxsdt,dPsdt] = obj.sigmaPointSmootherDynamicsCT(t+0.5*dt,xs+0.5*dxsa,Ps+0.5*dPsa,xhatk,Pk,uk,params);
+            dxsb = dxsdt*dt;
+            dPsb = dPsdt*dt;
+        
+            % Step c
+            [dxsdt,dPsdt] = obj.sigmaPointSmootherDynamicsCT(t+0.5*dt,xs+0.5*dxsb,Ps+0.5*dPsb,xhatk,Pk,uk,params);
+            dxsc = dxsdt*dt;
+            dPsc = dPsdt*dt;
+        
+            % Step d
+            [dxsdt,dPsdt] = obj.sigmaPointSmootherDynamicsCT(t+dt,xs+dxsc,Ps+dPsc,xhatk,Pk,uk,params);
+            dxsd = dxsdt*dt;
+            dPsd = dPsdt*dt;
+        
+            % 4th order Runge-Kutta integration result
+            xs = xs + (dxsa + 2*(dxsb + dxsc) + dxsd)/6;
+            Ps = Ps + (dPsa + 2*(dPsb + dPsc) + dPsd)/6;
+            t = t + dt;
+        
+        end
+        
+        % Assign the results to the appropriate outputs.
+        xskm1 = xs;
+        Pskm1 = Ps;
+
+    end % rts
+
 end % public methods
 
 methods (Access=private)
@@ -337,6 +485,49 @@ methods (Access=private)
         dxbardt = mf;
 
     end % sigmaPointDynamicsCT
+
+    function [dxsdt,dPsdt] = sigmaPointSmootherDynamicsCT(obj,t,xs,Ps,xhat,P,u,params)
+        %sigmaPointSmootherDynamicsCT This method computes the dynamics of the
+        % continuous-time, unscented Kalman filter sigma points.
+        
+        % Compute the lower triangular Cholesky factor of P(t) satisfying
+        % Eq. (15).
+        [Sxtp,flag] = chol(P);
+        Sx = Sxtp';
+        if flag > 0
+            warning('Singular S(t) at time t=%0.2f',t);
+            Sx = chol(P + 1e-3*eye(size(P)))';
+        end
+        
+        % Construct matrices of sigma points, their dynamics, and outputs.
+        [Xk,fX] = obj.sigmaPointsCT(t,xhat,u,Sx,params);
+
+        % Efficiently compute necessary covariances.
+        mx = zeros(obj.nx,1);
+        mf = zeros(obj.nx,1);
+        for ii = 1:obj.ns
+            mx = mx + obj.Wm(ii,1)*Xk(:,ii);
+            mf = mf + obj.Wm(ii,1)*fX(:,ii);
+        end
+        XWfXtr = zeros(obj.nx,obj.nx);
+        for ii = 1:obj.ns
+            XWfXtr = XWfXtr + obj.Wc(ii,1)*(Xk(:,ii)-mx)*(fX(:,ii)-mf)';
+        end
+        
+        % Process noise diffusion matrix
+        D = obj.Diffusion(t,xhat,u,params);
+
+        % Compute the smoothing gain.
+        Qc = obj.Q(t);
+        G = (XWfXtr' + D*Qc*D')/P;
+        
+        % Compute the smoothed estimate dynamics.
+        dxsdt = mf + G*(xs-xhat);
+        
+        % Compute the covariance dynamics.
+        dPsdt = G*Ps + Ps*G' - D*Qc*D';
+
+    end % sigmaPointSmootherDynamicsCT
 
     function [Xk,fX,hX] = sigmaPointsCT(obj,tk,xk,uk,Sx,params)
         %sigmaPointsCT This method computes matrices of sigma points, their

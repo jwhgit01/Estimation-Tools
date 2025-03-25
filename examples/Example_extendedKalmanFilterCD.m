@@ -4,7 +4,7 @@ clc
 addpath(genpath('../'))
 
 % System on which extended Kalman filtering is to be performed
-system = "Lorenz"; % "RigidBody" or "Lorenz"
+system = "RigidBody"; % "RigidBody" or "Lorenz"
 
 if strcmp(system,"RigidBody")
     load ExampleData_RigidBody.mat t x z Sigma R params tSim xSim
