@@ -130,7 +130,7 @@ end
 [Qb,Rb] = qr(Ha,0);
 delzb1 = Qb'*delza;
 Rbinv = inv(Rb);
-dx = Rbinv*delzb1;
+dx = Rb\delzb1;
 P = Rbinv*(Rbinv');
 dJdx = Ha'*delza;
 dJdalpha = dJdx'*dx;

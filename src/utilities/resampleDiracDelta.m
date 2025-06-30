@@ -47,16 +47,16 @@ eta1 = rand/Ns;
 % from the approximate a posteriori state-vector distribution that has been
 % defined in (1). Set i = 1 and l = 1 and begin iteratively sampling.
 ii = 1;
-ll = 1;
-while ll <= Ns
+jj = 1;
+while jj <= Ns
     
     % Set etal and comapre to computed constants. If it is below the
     % threshold, set the lth particle to have the valuenof the old ith
     % particle. Then, move on to sample the next particle.
-    etal = eta1 + (ll-1)/Ns;
-    if etal < c(ii+1)
-        Xknew(:,ll) = Xk(:,ii);
-        ll = ll + 1;
+    etaj = eta1 + (jj-1)/Ns;
+    if etaj < c(ii+1)
+        Xknew(:,jj) = Xk(:,ii);
+        jj = jj + 1;
         continue
     end
 
