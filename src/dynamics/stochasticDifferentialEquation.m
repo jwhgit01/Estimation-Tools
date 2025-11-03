@@ -157,7 +157,7 @@ methods
         end
         
         % Re-sample xEM to times in t
-        x = interp1(tEM,xEM,t,"previous");
+        x = interp1(tEM,xEM,t,"previous","extrap");
     end
 end
 
