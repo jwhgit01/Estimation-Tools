@@ -1,21 +1,14 @@
-module RigidBodyModel
+module RigidBody
 
 using LinearAlgebra
 
-export driftModel_RigidBody, diffusionModel_RigidBody, measurementModel_RigidBody
+export driftModel, diffusionModel, measurementModel
 
-"""
-    cpem(a)
-
-Return the cross-product equivalent matrix for the vector `a`.
-"""
 function cpem(a)
-    return [0.0 -a[3] a[2];
-            a[3] 0.0 -a[1];
-            -a[2] a[1] 0.0]
+    return [0 -a[3] a[2]; a[3] 0 -a[1]; -a[2] a[1] 0]
 end
 
-function driftModel_RigidBody(t, x, u, params)
+function driftModel(t, x, u, params)
     I = params.I
     Theta = x[1:3]
     omega = x[4:6]
@@ -23,9 +16,7 @@ function driftModel_RigidBody(t, x, u, params)
     phi = Theta[1]
     theta = Theta[2]
 
-    L_IB = [1.0, sin(phi) * tan(theta), cos(phi) * tan(theta);
-            0.0, cos(phi),            -sin(phi);
-            0.0, sin(phi) * 1 / cos(theta), cos(phi) * 1 / cos(theta)]
+    L_IB = [1 sin(phi)*tan(theta) cos(phi)*tan(theta); 0 cos(phi) -sin(phi); 0 sin(phi)/cos(theta) cos(phi)/cos(theta)]
 
     f_theta = L_IB * omega
     f_omega = I \ cross(I * omega, omega)
@@ -43,7 +34,7 @@ function driftModel_RigidBody(t, x, u, params)
     return f, A
 end
 
-function diffusionModel_RigidBody(t, x, u, params)
+function diffusionModel(t, x, u, params)
     Theta = x[1:3]
 
     phi = Theta[1]
@@ -79,7 +70,7 @@ function diffusionModel_RigidBody(t, x, u, params)
     return D, J
 end
 
-function measurementModel_RigidBody(t, x, u, params)
+function measurementModel(t, x, u, params)
     Theta = x[1:3]
 
     phi = Theta[1]
